@@ -96,14 +96,17 @@ class OscarTSVDataset(Dataset):
                 doc = []
                 row = self.corpus_tsvfile.seek(line_no)
                 img_info = row[0].split('_')
-                label_info = row[1].split('_')
+                try:
+                    label_info = row[1].split('_')
+                except:
+                    import pdb; pdb.set_trace()
                 assert img_info[0] == label_info[
-                    0], "Dataset names for image and label do not match!"
+                    0], "Dataset names for image and label do not match!" # assert triggers if img_info[0] != label_info[0]
                 dataset_name = label_info[0]
                 if dataset_name == 'cc':
                     dataset_name = 'googlecc'
 
-                if dataset_name not in self.datasets_names:
+                if dataset_name not in self.datasets_names: # this line allows us to only use for eg COCO if we want to just use that for pretraining. for this, in the yaml file just change the dataset tp "coco", in place of "coco_cc_...etc"
                     continue
 
                 if dataset_name in self.datasets_with_splits:
@@ -382,7 +385,7 @@ class OscarTSVDataset(Dataset):
                 img_label_file_path = os.path.join(
                     self.image_label_path[dataset_name], 'predictions_gt.tsv')
                 img_qa_file_path = os.path.join(
-                    self.image_label_path[dataset_name], 'QA_fileB.tsv')
+                    self.image_label_path[dataset_name], 'QA_fileB.tsv') # append name of dataset with QA_B, but will be only used when such a dataset actually exisits
                 t_s = time.time()
                 self.img_label_file[dataset_name] = TSVFile(img_label_file_path)
                 if os.path.exists(img_qa_file_path):

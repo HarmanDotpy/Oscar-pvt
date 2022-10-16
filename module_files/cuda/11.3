@@ -1,0 +1,16 @@
+#%Module1.0#####################################################################
+##
+## dot modulefile
+##
+##
+set     name            cuda
+set     version         11.3
+set     path            usr/local/$name-$version
+
+module-whatis   "Sets up your environment to use $name-$version"
+
+conflict $name
+
+setenv    CUDA_HOME    /$path
+prepend-path    PATH               /$path/bin
+prepend-path    LD_LIBRARY_PATH    /$path/lib64

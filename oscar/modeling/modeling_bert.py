@@ -7,13 +7,23 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss, MSELoss
-from transformers.pytorch_transformers.modeling_bert import (BertEmbeddings, 
+# from transformers.pytorch_transformers.modeling_bert import (BertEmbeddings, 
+#         BertSelfAttention, BertAttention, BertEncoder, BertLayer, 
+#         BertSelfOutput, BertIntermediate, BertOutput,
+#         BertPooler, BertLayerNorm, BertPreTrainedModel,
+# 		BertPredictionHeadTransform, BertOnlyMLMHead, BertLMPredictionHead,
+#         BertConfig, BERT_PRETRAINED_MODEL_ARCHIVE_MAP,
+#         load_tf_weights_in_bert)
+import transformers
+from transformers.models.bert.modeling_bert import (BertEmbeddings, 
         BertSelfAttention, BertAttention, BertEncoder, BertLayer, 
         BertSelfOutput, BertIntermediate, BertOutput,
-        BertPooler, BertLayerNorm, BertPreTrainedModel,
+        BertPooler, BertPreTrainedModel,
 		BertPredictionHeadTransform, BertOnlyMLMHead, BertLMPredictionHead,
-        BertConfig, BERT_PRETRAINED_MODEL_ARCHIVE_MAP,
+        BertConfig, BERT_PRETRAINED_MODEL_ARCHIVE_LIST,
         load_tf_weights_in_bert)
+# BERT_PRETRAINED_MODEL_ARCHIVE_MAP = BERT_PRETRAINED_MODEL_ARCHIVE_LIST # Hack, see https://github.com/huggingface/transformers/issues/5842
+BertLayerNorm = torch.nn.LayerNorm # Hack! the new transformer version doesnt have any bertlayernorm, since its the same as torch.nn.layernorm. Hack was found in https://github.com/huggingface/transformers/issues/10892 
 from .modeling_utils import CaptionPreTrainedModel, ImgPreTrainedModel
 from ..utils.cbs import ConstrainedBeamSearch, select_best_beam_with_constraints
 
@@ -26,7 +36,8 @@ class CaptionBertSelfAttention(BertSelfAttention):
     """
     def __init__(self, config):
         super(CaptionBertSelfAttention, self).__init__(config)
-
+        self.output_attentions = config.output_attentions
+        
     def forward(self, hidden_states, attention_mask, head_mask=None,
             history_state=None):
         if history_state is not None:
@@ -180,7 +191,10 @@ class BertImgModel(BertPreTrainedModel):
             if self.use_img_layernorm:
                 self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.img_layer_norm_eps)
 
-        self.apply(self.init_weights)
+        # import pdb; pdb.set_trace()
+        # self.apply(self.init_weights)
+        # self.init_weights()
+        self.post_init() # new way of initializing weights, see https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py
 
     def _resize_token_embeddings(self, new_num_tokens):
         old_embeddings = self.embeddings.word_embeddings
@@ -195,6 +209,7 @@ class BertImgModel(BertPreTrainedModel):
         """
         for layer, heads in heads_to_prune.items():
             self.encoder.layer[layer].attention.prune_heads(heads)
+    
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None,
             position_ids=None, head_mask=None, img_feats=None,
@@ -612,8 +627,10 @@ class BertForImageCaptioning(CaptionPreTrainedModel):
         self.cls = BertOnlyMLMHead(config)
         self.loss = BertCaptioningLoss(config)
 
-        self.apply(self.init_weights)
-        self.tie_weights()
+        # self.apply(self.init_weights)
+        # self.init_weights()
+        # self.tie_weights() # not needed since the from_pertrained method calls this already
+        self.post_init()
 
     def tie_weights(self):
         if hasattr(self.config, 'tie_weights') and self.config.tie_weights:
@@ -964,7 +981,7 @@ class BertImgForPreTraining(ImgPreTrainedModel):
 
     """
     config_class = BertConfig
-    pretrained_model_archive_map = BERT_PRETRAINED_MODEL_ARCHIVE_MAP
+    # pretrained_model_archive_map = BERT_PRETRAINED_MODEL_ARCHIVE_MAP
     load_tf_weights = load_tf_weights_in_bert
     base_model_prefix = "bert"
 
@@ -976,10 +993,12 @@ class BertImgForPreTraining(ImgPreTrainedModel):
         self.cls = BertPreTrainingHeads(config)
         self.num_seq_relations = config.num_contrast_classes if hasattr(config, "num_contrast_classes") else 2
 
-        self.apply(self.init_weights)
-        self.tie_weights()
+        self.post_init()
+        # # self.apply(self.init_weights)
+        # self.init_weights(self)
+        # self.tie_weights() # not needed since the from_pertrained method calls this already
 
-    def init_weights(self, module):
+    def _init_weights(self, module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):

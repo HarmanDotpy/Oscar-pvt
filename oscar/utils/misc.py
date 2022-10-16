@@ -31,7 +31,7 @@ def set_seed(seed, n_gpu):
 
 def load_from_yaml_file(yaml_file):
     with open(yaml_file, 'r') as fp:
-        return yaml.load(fp)
+        return yaml.safe_load(fp)
 
 
 def find_file_path_in_yaml(fname, root):

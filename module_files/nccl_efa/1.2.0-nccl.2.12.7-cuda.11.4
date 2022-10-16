@@ -1,0 +1,29 @@
+#%Module1.0#####################################################################
+##
+## dot modulefile
+##
+##
+set     name            NCCL_EFA
+set     version         1.2.0
+
+module-whatis   "Sets up your environment to use $name-$version"
+
+conflict $name
+
+prepend-path    LD_LIBRARY_PATH  /usr/local/cuda-11.4/efa/lib:/opt/amazon/efa/lib
+prepend-path    LIBRARY_PATH     /usr/local/cuda-11.4/efa/lib:/opt/amazon/efa/lib
+prepend-path    CPATH            /usr/local/cuda-11.4/include:/opt/amazon/efa/include
+
+setenv FI_EFA_MR_CACHE_ENABLE 1
+setenv FI_EFA_USE_DEVICE_RDMA 1
+setenv FI_OFI_RXR_INLINE_MR_ENABLE 1
+setenv FI_OFI_RXR_RX_COPY_UNEXP 1
+setenv FI_OFI_RXR_RX_COPY_OOO 1
+setenv FI_PROVIDER efa
+setenv NCCL_ALGO tree
+setenv NCCL_PROTO simple
+setenv NCCL_DEBUG INFO
+setenv NCCL_TREE_THRESHOLD 0
+setenv NCCL_NET_SHARED_BUFFERS 0
+setenv NCCL_TOPO_FILE /usr/local/cuda-11.4/efa/share/aws-ofi-nccl/xml/p4d-24xl-topo.xml 
+setenv RDMAV_FORK_SAFE 1

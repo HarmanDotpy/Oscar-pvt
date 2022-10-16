@@ -1,0 +1,17 @@
+#%Module1.0#####################################################################
+##
+## dot modulefile
+##
+##
+set     name            NCCL
+set     version         2.9.9
+
+module-whatis   "Sets up your environment to use $name-$version"
+
+conflict $name
+
+setenv    NCCL_ROOT_DIR    /usr/local/cuda-11.3
+
+prepend-path    LD_LIBRARY_PATH    /usr/local/cuda-11.3/lib
+prepend-path    LIBRARY_PATH       /usr/local/cuda-11.3/lib
+prepend-path    CPATH            /usr/local/cuda-11.3/include

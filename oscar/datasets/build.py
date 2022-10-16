@@ -3,7 +3,8 @@ import logging
 import torch
 from oscar.utils.misc import get_world_size
 from .oscar_tsv import OscarTSVDataset
-from transformers.pytorch_transformers import BertTokenizer
+import transformers
+from transformers import BertTokenizer
 
 
 class BatchCollator(object):
@@ -21,6 +22,7 @@ def build_dataset(args):
         args: configuration.
     """
     full_yaml_file = os.path.join(args.data_dir, args.dataset_file)
+    # import pdb; pdb.set_trace()
     assert os.path.isfile(full_yaml_file)
 
     tokenizer = BertTokenizer.from_pretrained(

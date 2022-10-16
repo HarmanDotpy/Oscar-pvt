@@ -16,19 +16,30 @@ sys.path.insert(0, '.')
 import numpy as np
 import torch
 
+import transformers
 from oscar.modeling.modeling_bert import BertImgForPreTraining
-from transformers.pytorch_transformers import (WEIGHTS_NAME, BertConfig,
+# from transformers.pytorch_transformers import (WEIGHTS_NAME, BertConfig,
+#                                   BertTokenizer)
+from transformers import (WEIGHTS_NAME, BertConfig,
                                   BertTokenizer)
 
 from oscar.datasets.build import make_data_loader
 
-from transformers.pytorch_transformers import AdamW, WarmupLinearSchedule
+# from transformers.pytorch_transformers import AdamW, WarmupLinearSchedule
+from transformers.optimization import AdamW #, WarmupLinearSchedule
+from transformers import get_linear_schedule_with_warmup
 from oscar.utils.misc import mkdir, get_rank
 from oscar.utils.metric_logger import TensorboardLogger
 
 logger = logging.getLogger(__name__)
 
-ALL_MODELS = sum((tuple(conf.pretrained_config_archive_map.keys()) for conf in (BertConfig,)), ())
+# from transformers.models.bert.modeling_bert import BERT_PRETRAINED_MODEL_ARCHIVE_LIST
+# BertConfig.pretrained_config_archive_map = BERT_PRETRAINED_MODEL_ARCHIVE_LIST # This is a hack again, BERT_PRETRAINED_MODEL_ARCHIVE_LIST was discarded after transformers version 2.0.0
+# import pdb; pdb.set_trace()
+#The folliwng should not be required
+# ALL_MODELS = sum((tuple(conf.pretrained_config_archive_map.keys()) for conf in (BertConfig,)), ())
+# ALL_MODELS = sum((tuple(conf.pretrained_config_archive_map) for conf in (BertConfig,)), ())
+
 
 MODEL_CLASSES = {
     'bert': (BertConfig, BertImgForPreTraining, BertTokenizer),
@@ -85,8 +96,7 @@ def main():
 
     parser.add_argument("--model_name_or_path", default=None, type=str,
                         required=True,
-                        help="Path to pre-trained model or shortcut name selected in the list: " + ", ".join(
-                            ALL_MODELS))
+                        help="Path to pre-trained model or shortcut name eg 'bert-base-uncased' ")
     parser.add_argument("--config_name", default="", type=str,
                         help="Pretrained config name or path if not the same as model_name")
     parser.add_argument("--tokenizer_name", default="", type=str,
@@ -153,9 +163,18 @@ def main():
 
     if args.gpu_ids != '-1':
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_ids
+    
+    # args.num_gpus = os.environ['CUDA_VISIBLE_DEVICES'].split(',').__len__()
+    # os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(f'{i}' for i in range(args.num_gpus))
+    print(f'localrank = {args.local_rank}')
 
-    args.num_gpus = int(
-        os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
+    args.local_rank = int(os.environ["LOCAL_RANK"])
+    print(f'localrank = {args.local_rank}')
+    # args.num_gpus = int(
+    #     os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
+################
+    args.num_gpus = int(os.environ["WORLD_SIZE"])
+################
     args.distributed = args.num_gpus > 1
 
     if args.gpu_ids != '-1':
@@ -163,8 +182,29 @@ def main():
 
     if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train:
         logger.info("Output Directory Exists.")
+    
+    if not os.path.exists(args.output_dir) and args.do_train:
+        logger.info("Output Directory doesnot exist, creating it")
+        os.makedirs(args.output_dir, exist_ok=True)
+
+    print(f'numgpu = {args.num_gpus}, worldsize = {os.environ["WORLD_SIZE"]}, gpu ids = {args.gpu_ids}')
 
     # Setup CUDA, GPU & distributed training
+    #####################
+    if "WORLD_SIZE" in os.environ:
+        args.world_size = int(os.environ["WORLD_SIZE"])
+    args.distributed = args.world_size > 1
+    ngpus_per_node = torch.cuda.device_count()
+
+    if args.distributed:
+        if args.local_rank != -1: # for torch.distributed.launch
+            args.rank = args.local_rank
+            args.gpu = args.local_rank
+        elif 'SLURM_PROCID' in os.environ: # for slurm scheduler
+            args.rank = int(os.environ['SLURM_PROCID'])
+            args.gpu = args.rank % torch.cuda.device_count()
+    #####################
+
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device(
             "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
@@ -173,7 +213,8 @@ def main():
         torch.cuda.set_device(args.local_rank)
         device = torch.device("cuda", args.local_rank)
         torch.distributed.init_process_group(
-            backend='nccl', init_method="env://"
+            backend='nccl', init_method="env://",
+                                world_size=args.world_size, rank=args.local_rank
         )
         args.n_gpu = 1
     args.device = device
@@ -235,9 +276,14 @@ def main():
     config = config_class.from_pretrained(
         args.config_name if args.config_name else args.model_name_or_path,
     )
+    # the folliwng will be used in Imgbert class, since bert by default has no support for images, we are making support
     config.img_layer_norm_eps = args.img_layer_norm_eps
     config.use_img_layernorm = args.use_img_layernorm
 
+    # TODO: Not Clear
+        # - what is num contrast classes
+        # - what is use_b
+        # - what is texta, textb
     # discrete code
     config.img_feature_dim = args.img_feature_dim
     config.img_feature_type = args.img_feature_type
@@ -251,15 +297,15 @@ def main():
     # Prepare model
     # model = BertForPreTraining.from_pretrained(args.bert_model)
     load_num = 0
-    while load_num < 10:
-        try:
-            model = BertImgForPreTraining.from_pretrained(
-                args.model_name_or_path,
-                from_tf=bool('.ckpt' in args.model_name_or_path),
-                config=config)
-            break
-        except:
-            load_num += 1
+    # while load_num < 10:
+    #     try:
+    model = BertImgForPreTraining.from_pretrained(
+        args.model_name_or_path,
+        # from_tf=bool('.ckpt' in args.model_name_or_path),
+        config=config, ignore_mismatched_sizes=True)
+        #     break
+        # except:
+        #     load_num += 1
 
     # train from scratch
     if args.from_scratch:
@@ -299,9 +345,12 @@ def main():
 
     optimizer = AdamW(optimizer_grouped_parameters,
                               lr=args.learning_rate, eps=args.adam_epsilon)
-    scheduler = WarmupLinearSchedule(optimizer,
-                                     warmup_steps=args.warmup_steps,
-                                     t_total=args.max_iters)
+    # scheduler = WarmupLinearSchedule(optimizer,
+    #                                  warmup_steps=args.warmup_steps,
+    #                                  t_total=args.max_iters)
+    scheduler = get_linear_schedule_with_warmup(optimizer,
+                                     num_warmup_steps=args.warmup_steps,
+                                     num_training_steps=args.max_iters)
 
     if arguments['iteration'] > 0 and os.path.isfile(os.path.join(last_checkpoint_dir, 'optimizer.pth')):  # recovery
         logger.info(
@@ -313,6 +362,18 @@ def main():
         scheduler.load_state_dict(optimizer_to_load.pop("scheduler"))
 
     if args.distributed:
+###################
+        # if args.gpu is not None:
+        #     torch.cuda.set_device(args.gpu)
+        #     model.cuda(args.gpu)
+        #     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], output_device=args.local_rank,
+        #     find_unused_parameters=True)
+        #     model_without_ddp = model.module
+        # else:
+        #     model.cuda()
+        #     model = torch.nn.parallel.DistributedDataParallel(model)
+        #     model_without_ddp = model.module
+###################
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[args.local_rank], output_device=args.local_rank,
             find_unused_parameters=True)
@@ -364,6 +425,11 @@ def main():
             start_training_time = time.time()
             end = time.time()
             clock_started = True
+
+        # import pdb; pdb.set_trace()
+        # if step == args.max_iters:
+
+        #     break
 
         def data_process(mini_batch):
             images, targets, qa_inds = \
@@ -431,7 +497,7 @@ def main():
         nb_tr_steps += 1
         arguments["iteration"] = step + 1
 
-        if (step + 1) % args.gradient_accumulation_steps == 0:
+        if (step + 1) % args.gradient_accumulation_steps == 0: # gradients will flow at this point
             # do gradient clipping
             if args.max_grad_norm > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
