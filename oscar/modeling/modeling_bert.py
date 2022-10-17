@@ -1030,10 +1030,10 @@ class BertImgForPreTraining(ImgPreTrainedModel):
         outputs = (prediction_scores, seq_relationship_score,) + outputs[2:]  # add hidden states and attention if they are here
 
         if masked_lm_labels is not None and next_sentence_label is not None:
-            loss_fct = CrossEntropyLoss(ignore_index=-1)
+            loss_fct = CrossEntropyLoss(ignore_index=-1) # reduction = mean by default, in the main code, we also devide by grad acc steps, because loss should be ultimately divided by batch size = mean/grad_acc_steps
             masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), masked_lm_labels.view(-1))
-            next_sentence_loss = loss_fct(seq_relationship_score.view(-1, self.num_seq_relations), next_sentence_label.view(-1))
-            total_loss = masked_lm_loss + next_sentence_loss
+            tag_contrastive_loss = loss_fct(seq_relationship_score.view(-1, self.num_seq_relations), next_sentence_label.view(-1)) # NOTE: next sentence here means the contrastive loss!!
+            total_loss = masked_lm_loss + tag_contrastive_loss
             outputs = (total_loss,) + outputs + (masked_lm_loss,)
 
         return outputs  # (loss), prediction_scores, seq_relationship_score, (hidden_states), (attentions)
