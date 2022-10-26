@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=train_vlt_models
 #SBATCH --nodes=1
-#SBATCH --time=100:00:00
+#SBATCH --time=2:00:00
 #SBATCH --gres=gpu:8
 #SBATCH --ntasks-per-node=8
-#SBATCH --exclude=a100-st-p4d24xlarge-6,a100-st-p4d24xlarge-25,a100-st-p4d24xlarge-198,a100-st-p4d24xlarge-18,a100-st-p4d24xlarge-240,a100-st-p4d24xlarge-254,a100-st-p4d24xlarge-27,a100-st-p4d24xlarge-136,a100-st-p4d24xlarge-235
+#SBATCH --exclude=a100-st-p4d24xlarge-6
 #SBATCH --cpus-per-task=10
 #SBATCH --output=/fsx/harman/Oscar/log_test/slurm-%j.out
 #SBATCH --error=/fsx/harman/Oscar/log_test/slurm-%j.err
@@ -12,7 +12,7 @@
 
 
 export MASTER_PORT=12340
-export WORLD_SIZE=8
+export WORLD_SIZE=1
 echo "NODELIST="${SLURM_NODELIST}
 master_addr=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 export MASTER_ADDR=$master_addr
@@ -29,11 +29,11 @@ conda activate meter_efa_dinoclone
 
 
 # Without SG
-python -m torch.distributed.launch --nproc_per_node=8 oscar/run_oscarplus_pretrain.py \
+srun python -m torch.distributed.launch --nproc_per_node=8 oscar/run_oscarplus_pretrain.py \
     --use_b 1 \
     --max_grad_norm 10.0 --gradient_accumulation_steps 1 \
     --use_img_layernorm 1 \
-    --output_dir /checkpoints/harman/oscar/ \
+    --output_dir /checkpoints/harman/oscar/output_temp \
     --bert_model bert --model_name_or_path bert-base-uncased \
     --do_lower_case --learning_rate 5e-05 \
     --warmup_steps 0 --do_train --max_seq_length 35 --on_memory \
@@ -41,16 +41,15 @@ python -m torch.distributed.launch --nproc_per_node=8 oscar/run_oscarplus_pretra
     --drop_out 0.1 --train_batch_size 1024 \
     --ckpt_period 10000 --max_iters 2000000 --log_period 100 \
     --data_dir /fsx/harman/Oscar/yaml_files --dataset_file coco_sg.yaml \
-    --textb_sample_mode 1 --texta_false_prob 0.25 --num_workers 10 \
-    --output_hidden_states --obj_relation_vocab_size 51 \
-    --max_datapoints -1
+    --textb_sample_mode 1 --texta_false_prob 0.25 --num_workers 0 \
+    --max_datapoints 10000 --output_hidden_states --obj_relation_vocab_size 51
 
-# #With SG
-# python -m torch.distributed.launch --nproc_per_node=8 oscar/run_oscarplus_pretrain.py \
+#With SG
+# srun python -m torch.distributed.launch --nproc_per_node=8 oscar/run_oscarplus_pretrain.py \
 #     --use_b 1 \
 #     --max_grad_norm 10.0 --gradient_accumulation_steps 1 \
 #     --use_img_layernorm 1 \
-#     --output_dir /checkpoints/harman/oscar/ \
+#     --output_dir /checkpoints/harman/oscar/output_temp \
 #     --bert_model bert --model_name_or_path bert-base-uncased \
 #     --do_lower_case --learning_rate 5e-05 \
 #     --warmup_steps 0 --do_train --max_seq_length 35 --on_memory \
@@ -58,7 +57,7 @@ python -m torch.distributed.launch --nproc_per_node=8 oscar/run_oscarplus_pretra
 #     --drop_out 0.1 --train_batch_size 1024 \
 #     --ckpt_period 10000 --max_iters 2000000 --log_period 100 \
 #     --data_dir /fsx/harman/Oscar/yaml_files --dataset_file coco_sg.yaml \
-#     --textb_sample_mode 1 --texta_false_prob 0.25 --num_workers 10 \
+#     --textb_sample_mode 1 --texta_false_prob 0.25 --num_workers 0 \
 #     --use_sg --output_hidden_states --obj_relation_vocab_size 51
 
 

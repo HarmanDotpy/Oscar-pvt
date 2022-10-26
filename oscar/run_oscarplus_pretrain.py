@@ -183,8 +183,12 @@ def main():
     args = parser.parse_args()
 
     import wandb
-    wandb.init(entity="harman", project = 'SGVL', config=args)
-    wandb.run.name = wandb.run.name.split('-')[-1] ## a number is sufficient for the run name
+
+    if args.local_rank == 0:  # only on main process
+        # Initialize wandb run
+        wandb.init(entity="harman", project = 'SGVL', config=args)
+        wandb.run.name = wandb.run.name.split('-')[-1] ## a number is sufficient for the run name
+        args.output_dir = os.path.join(args.output_dir, wandb.run.name)
 
 
     if args.gpu_ids != '-1':
@@ -381,7 +385,7 @@ def main():
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[args.local_rank], output_device=args.local_rank,
-            find_unused_parameters=True)
+            find_unused_parameters=False)
     elif args.n_gpu > 1:
         model = torch.nn.DataParallel(model)
 
@@ -442,14 +446,6 @@ def main():
             images = torch.stack(images_feat_and_len_transposed[0]).to(args.device, non_blocking=True)
             images_feat_len = torch.tensor(list(images_feat_and_len_transposed[1])).to(args.device, non_blocking=True)
 
-            sg_transposed = list(zip(*sg))
-            sg_rel_idx_pairs = torch.stack(sg_transposed[0]).to(args.device, non_blocking=True)
-            mask_sg_rel_idx_pairs = torch.stack(sg_transposed[1]).to(args.device, non_blocking=True)
-            sg_rel_labels = torch.stack(sg_transposed[2]).to(args.device, non_blocking=True)
-            mask_sg_rel_labels = torch.stack(sg_transposed[3]).to(args.device, non_blocking=True)
-            sg_num_rels = sg_transposed[4]
-            # import pdb; pdb.set_trace()
-
             targets_transposed = list(zip(*targets))
             input_ids = torch.stack(targets_transposed[0]).to(args.device, non_blocking=True)
             input_mask = torch.stack(targets_transposed[1]).to(args.device, non_blocking=True)
@@ -458,8 +454,18 @@ def main():
             is_next = torch.stack(targets_transposed[4]).to(args.device, non_blocking=True)
             is_img_match = torch.stack(targets_transposed[5]).to(args.device, non_blocking=True)
 
+
             # # sg relates
             if args.use_sg:
+
+                sg_transposed = list(zip(*sg))
+                sg_rel_idx_pairs = torch.stack(sg_transposed[0]).to(args.device, non_blocking=True)
+                mask_sg_rel_idx_pairs = torch.stack(sg_transposed[1]).to(args.device, non_blocking=True)
+                sg_rel_labels = torch.stack(sg_transposed[2]).to(args.device, non_blocking=True)
+                mask_sg_rel_labels = torch.stack(sg_transposed[3]).to(args.device, non_blocking=True)
+                sg_num_rels = sg_transposed[4]
+                # import pdb; pdb.set_trace()
+
                 sg_rel_idx_pairs = sg_rel_idx_pairs.to(args.device, non_blocking=True)
                 mask_sg_rel_idx_pairs = mask_sg_rel_idx_pairs.to(args.device, non_blocking=True)
                 sg_rel_labels = sg_rel_labels.to(args.device, non_blocking=True)
@@ -492,7 +498,7 @@ def main():
                             )
 
             loss_oscar = loss_weight * outputs[0]
-            loss_rel_classif = 0.
+            loss_rel_classif = torch.tensor(0.)
             if args.use_sg:
                 loss_rel_classif = loss_weight_rel_classif * outputs[5]
 
@@ -509,7 +515,7 @@ def main():
             total_loss = loss_oscar + loss_rel_classif
             total_loss.backward()
 
-            return {'tr_loss':total_loss, 'loss_oscar': loss_oscar.item(), 'loss_rel_classif': loss_rel_classif.item()}, input_ids.size(0)
+            return {'tr_loss':total_loss.item(), 'loss_oscar': loss_oscar.item(), 'loss_rel_classif': loss_rel_classif.item()}, input_ids.size(0)
 
         start1 = time.time()
         loss_dict1, nb_tr_example1 = forward_backward(
@@ -560,10 +566,10 @@ def main():
                 'batch_metrics': {k: loss_dict1[k]+loss_dict2[k] for k in loss_dict.keys()}
             }
             params_to_log = {'params': {'bert_lr': optimizer.param_groups[0]["lr"]}}
-            
 
-            wandb.log(metrics_to_log)
-            wandb.log(params_to_log)
+            if args.local_rank == 0:  # only on main process
+                wandb.log(metrics_to_log)
+                wandb.log(params_to_log)
 
             meters.update_metrics(metrics_to_log)
             meters.update_params(params_to_log)

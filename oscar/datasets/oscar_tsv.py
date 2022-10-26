@@ -307,10 +307,11 @@ class OscarTSVDataset(Dataset):
 
 
         # number of image features should be the same as the number of object labels
-        try:
-            assert img_feat_len == img_sg['obj_labels'].shape[0] or (img_sg['obj_labels'].shape[0]>self.args.max_img_seq_length and img_feat_len==self.args.max_img_seq_length)
-        except:
-            import pdb; pdb.set_trace()
+        if self.use_sg:
+            try:
+                assert img_feat_len == img_sg['obj_labels'].shape[0] or (img_sg['obj_labels'].shape[0]>self.args.max_img_seq_length and img_feat_len==self.args.max_img_seq_length)
+            except:
+                import pdb; pdb.set_trace()
 
 
         return (img_feat, img_feat_len), (
@@ -321,17 +322,7 @@ class OscarTSVDataset(Dataset):
             torch.tensor(cur_features.is_next),
             torch.tensor(cur_features.is_img_match),
         ), (rel_idx_pairs, mask_rel_idx_pairs, rel_labels, mask_rel_labels, rel_len), item
-        # return img_feat, (
-        #     torch.tensor(cur_features.input_ids, dtype=torch.long),
-        #     torch.tensor(cur_features.input_mask, dtype=torch.long),
-        #     torch.tensor(cur_features.segment_ids, dtype=torch.long),
-        #     torch.tensor(cur_features.lm_label_ids, dtype=torch.long),
-        #     torch.tensor(cur_features.is_next),
-        #     torch.tensor(cur_features.is_img_match),
-        # ), item
 
-
-        # return cur_tensors
 
     def random_sent(self, index):
         """
@@ -664,8 +655,8 @@ class OscarTSVDataset(Dataset):
             feat = np.frombuffer(base64.b64decode(arr[-1]),
                                  dtype=np.float32).reshape(
                 (num_boxes, self.args.img_feature_dim))
-            feat = torch.from_numpy(feat)
-            # feat = torch.from_numpy(np.array(feat))
+            # feat = torch.from_numpy(feat)
+            feat = torch.from_numpy(np.array(feat))
             return feat
 
         return None
