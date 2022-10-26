@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=train_vlt_models
 #SBATCH --nodes=1
-#SBATCH --time=70:00:00
-#SBATCH --gres=gpu:8
+#SBATCH --time=00:10:00
+#SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
 #SBATCH --exclude=a100-st-p4d24xlarge-6,a100-st-p4d24xlarge-18,a100-st-p4d24xlarge-240,a100-st-p4d24xlarge-254
 #SBATCH --cpus-per-task=10
@@ -12,7 +12,7 @@
 
 
 export MASTER_PORT=12340
-export WORLD_SIZE=8
+export WORLD_SIZE=1
 echo "NODELIST="${SLURM_NODELIST}
 master_addr=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 export MASTER_ADDR=$master_addr
@@ -26,7 +26,7 @@ module load /fsx/harman/KEPTLMs/module_files/nccl_efa/1.2.0-nccl.2.12.7-cuda.11.
 source ~/miniconda/etc/profile.d/conda.sh
 conda activate meter_efa_dinoclone
 
-srun python -m torch.distributed.launch --nproc_per_node=8 oscar/run_oscarplus_pretrain.py \
+srun python -m torch.distributed.launch --nproc_per_node=1 oscar/run_oscarplus_pretrain.py \
     --use_b 1 \
     --max_grad_norm 10.0 --gradient_accumulation_steps 1 \
     --use_img_layernorm 1 \

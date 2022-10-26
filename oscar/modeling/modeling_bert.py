@@ -22,6 +22,7 @@ from transformers.models.bert.modeling_bert import (BertEmbeddings,
 		BertPredictionHeadTransform, BertOnlyMLMHead, BertLMPredictionHead,
         BertConfig, BERT_PRETRAINED_MODEL_ARCHIVE_LIST,
         load_tf_weights_in_bert)
+
 # BERT_PRETRAINED_MODEL_ARCHIVE_MAP = BERT_PRETRAINED_MODEL_ARCHIVE_LIST # Hack, see https://github.com/huggingface/transformers/issues/5842
 BertLayerNorm = torch.nn.LayerNorm # Hack! the new transformer version doesnt have any bertlayernorm, since its the same as torch.nn.layernorm. Hack was found in https://github.com/huggingface/transformers/issues/10892 
 from .modeling_utils import CaptionPreTrainedModel, ImgPreTrainedModel
@@ -291,6 +292,8 @@ class BertImgModel(BertPreTrainedModel):
 
         # add hidden_states and attentions if they are here
         outputs = (sequence_output, pooled_output,) + encoder_outputs[1:]
+
+        # sequence_output is the same as last hidden state of all_hidden_states
         return outputs
 
 
@@ -934,11 +937,25 @@ class BertPreTrainingHeads(nn.Module):
         self.predictions = BertLMPredictionHead(config)
         num_seq_relations = config.num_contrast_classes if hasattr(config, "num_contrast_classes") else 2
         self.seq_relationship = nn.Linear(config.hidden_size, num_seq_relations)
+        self.use_sg = config.use_sg
 
-    def forward(self, sequence_output, pooled_output):
+        obj_relation_vocab_size = config.obj_relation_vocab_size
+        if self.use_sg:
+            self.obj_relation = nn.Linear(2*config.hidden_size, obj_relation_vocab_size)
+
+    def forward(self, sequence_output, pooled_output, num_img_feats=None, sg_rel_idx_pairs = None):
         prediction_scores = self.predictions(sequence_output)
         seq_relationship_score = self.seq_relationship(pooled_output)
-        return prediction_scores, seq_relationship_score
+
+        if self.use_sg:
+            img_feats = sequence_output[:,-1*num_img_feats:]
+            batch_idx = torch.arange(img_feats.shape[0]).unsqueeze(-1)
+            sg_rel_idx_pairs = sg_rel_idx_pairs.long()
+            img_feats_grid = torch.cat((img_feats[batch_idx, sg_rel_idx_pairs[:, :, 0]], img_feats[batch_idx, sg_rel_idx_pairs[:, :, 1]]), dim=2) # (B, max_relations, 768*2) # max relations because we have padded the sg_rel_idx_pairs
+            obj_relation_score = self.obj_relation(img_feats_grid) # (B, max_relations, obj_relation_vocab_size)
+            return prediction_scores, seq_relationship_score, obj_relation_score
+        else:
+            return prediction_scores, seq_relationship_score
 
 
 class BertImgForPreTraining(ImgPreTrainedModel):
@@ -989,6 +1006,7 @@ class BertImgForPreTraining(ImgPreTrainedModel):
         super(BertImgForPreTraining, self).__init__(config)
 
         #self.bert = BertModel(config) # original BERT
+        self.config = config
         self.bert = BertImgModel(config)
         self.cls = BertPreTrainingHeads(config)
         self.num_seq_relations = config.num_contrast_classes if hasattr(config, "num_contrast_classes") else 2
@@ -1020,14 +1038,22 @@ class BertImgForPreTraining(ImgPreTrainedModel):
                                    self.bert.embeddings.word_embeddings)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, masked_lm_labels=None,
-            next_sentence_label=None, position_ids=None, head_mask=None, img_feats=None):
+            next_sentence_label=None, position_ids=None, head_mask=None, img_feats=None, 
+            sg_rel_idx_pairs = None, sg_rel_labels = None):
+
         outputs = self.bert(input_ids, position_ids=position_ids, token_type_ids=token_type_ids,
                             attention_mask=attention_mask, head_mask=head_mask, img_feats=img_feats)
+        num_img_feats = img_feats.shape[1]
 
         sequence_output, pooled_output = outputs[:2]
-        prediction_scores, seq_relationship_score = self.cls(sequence_output, pooled_output)
+        bert_head_scores = self.cls(sequence_output, pooled_output, num_img_feats = num_img_feats, 
+                                                            sg_rel_idx_pairs = sg_rel_idx_pairs)
 
+        prediction_scores, seq_relationship_score = bert_head_scores[0], bert_head_scores[1]        
         outputs = (prediction_scores, seq_relationship_score,) + outputs[2:]  # add hidden states and attention if they are here
+        
+        if self.config.use_sg:
+            relation_scores = bert_head_scores[2]
 
         if masked_lm_labels is not None and next_sentence_label is not None:
             loss_fct = CrossEntropyLoss(ignore_index=-1) # reduction = mean by default, in the main code, we also devide by grad acc steps, because loss should be ultimately divided by batch size = mean/grad_acc_steps
@@ -1036,4 +1062,17 @@ class BertImgForPreTraining(ImgPreTrainedModel):
             total_loss = masked_lm_loss + tag_contrastive_loss
             outputs = (total_loss,) + outputs + (masked_lm_loss,)
 
-        return outputs  # (loss), prediction_scores, seq_relationship_score, (hidden_states), (attentions)
+            if self.config.use_sg:
+                lossrel_predict_fct = CrossEntropyLoss(ignore_index=-1) # ignore_index = -1, because if number of relations are less than the max number of relations, we pad the relation labels with -1 and this has to be ignored while calculating the loss
+
+                # import pdb; pdb.set_trace()
+                # loss_rel_predict = lossrel_predict_fct(relation_scores[:, :sg_num_rels].view(-1, self.config.obj_relation_vocab_size), sg_rel_labels[:, :sg_num_rels].view(-1).long())
+                loss_rel_predict = lossrel_predict_fct(relation_scores.view(-1, self.config.obj_relation_vocab_size), sg_rel_labels.view(-1).long())
+                outputs = outputs + (loss_rel_predict,)
+
+        
+        if len(outputs)>3:
+            if torch.all(sequence_output != outputs[3][-1]):
+                logger.warning('sequence_output != outputs[3][-1]')
+
+        return outputs  # (loss), prediction_scores, seq_relationship_score, (hidden_states), (attentions), (loss_rel_predict)

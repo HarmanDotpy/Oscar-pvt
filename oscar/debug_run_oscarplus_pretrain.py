@@ -160,6 +160,10 @@ def main():
                         help="Period for saving logging info")
     args = parser.parse_args()
 
+    import wandb
+    wandb.init(entity="harman", project = 'SGVL', config=args)
+    wandb.run.name = wandb.run.name.split('-')[-1] ## a number is sufficient for the run name
+
     if args.gpu_ids != '-1':
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_ids
 
@@ -482,11 +486,16 @@ def main():
                 'time_info': {'compute': batch_time, 'data': data_time,
                               'compute1': compute_time1,
                               'compute2': compute_time2},
-                'batch_metrics': {'loss': loss1+loss2}
+                'batch_metrics': {'loss': loss1+loss2},
             }
             params_to_log = {'params': {'bert_lr': optimizer.param_groups[0]["lr"]}}
+
+            wandb.log(metrics_to_log)
+            wandb.log(params_to_log)
+
             meters.update_metrics(metrics_to_log)
             meters.update_params(params_to_log)
+
 
             if args.log_period > 0 and (step + 1) % args.log_period == 0:
                 avg_time = meters.meters['time_info']['compute'].global_avg

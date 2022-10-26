@@ -142,6 +142,28 @@ def main():
                         help="Normalize image features with bertlayernorm")
     parser.add_argument("--img_layer_norm_eps", default=1e-12, type=float,
                         help="The eps in image feature laynorm layer")
+
+
+    ## scene graph related
+    parser.add_argument("--use_sg", action='store_true',
+                        help="Whether to sue scene graph information while training")
+    parser.add_argument("--max_rel_length", default=100, type=int,
+                        help="The maximum total input number of relations \n"
+                             "Sequences longer than this will be truncated, and sequences shorter than this will be padded.")
+    parser.add_argument("--obj_relation_vocab_size",  type=int,
+                        help="The maximum total input number of relations in the vocabulary")
+    parser.add_argument("--loss_weight_rel_classif", type=float, default=1.0,
+                        help="the loss weight for the relation classification")
+                             
+
+    ##Model extra stuff
+    parser.add_argument("--output_hidden_states", action='store_true',
+                        help="output the hidden states from the bert model or not")
+    
+    ## debug related
+    parser.add_argument("--max_datapoints", type=int, default=-1,
+                        help="max datapoints to load")
+                        
     # distributed
     parser.add_argument('--gpu_ids', type=str, default='-1')
     parser.add_argument("--mask_loss_for_unmatched", type=int, default=1,
@@ -159,6 +181,7 @@ def main():
     parser.add_argument('--log_period', type=int, default=100,
                         help="Period for saving logging info")
     args = parser.parse_args()
+
 
     if args.gpu_ids != '-1':
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_ids
@@ -288,6 +311,10 @@ def main():
     else:
         args.num_contrast_classes = 2
     config.num_contrast_classes = args.num_contrast_classes
+    config.output_hidden_states = args.output_hidden_states
+
+    config.obj_relation_vocab_size = args.obj_relation_vocab_size
+    config.use_sg = args.use_sg
 
     # Prepare model
     model = BertImgForPreTraining.from_pretrained(
@@ -392,7 +419,8 @@ def main():
 
     clock_started = False
     # Every args.ckpt_period, report train_score and save model
-    tr_loss = 0
+    # tr_loss = 0
+    loss_dict = {'tr_loss':0, 'loss_oscar':0, 'loss_rel_classif':0}
     nb_tr_examples, nb_tr_steps = 0, 0
     for step, (batch, batch_extra) in enumerate(zip(train_dataloader, train_dataloader_extra), start_iter):
         if not clock_started:
@@ -401,8 +429,23 @@ def main():
             clock_started = True
 
         def data_process(mini_batch):
-            images, targets, qa_inds = \
-                mini_batch[0], mini_batch[1], mini_batch[2]
+            images_feat_and_len, targets, sg, qa_inds = \
+                mini_batch[0], mini_batch[1], mini_batch[2], mini_batch[3]
+            # images, targets, qa_inds = \
+            #     mini_batch[0], mini_batch[1], mini_batch[2] # each element of minibatch is just a list of elements
+
+            images_feat_and_len_transposed = list(zip(*images_feat_and_len))
+            images = torch.stack(images_feat_and_len_transposed[0]).to(args.device, non_blocking=True)
+            images_feat_len = torch.tensor(list(images_feat_and_len_transposed[1])).to(args.device, non_blocking=True)
+
+            sg_transposed = list(zip(*sg))
+            sg_rel_idx_pairs = torch.stack(sg_transposed[0]).to(args.device, non_blocking=True)
+            mask_sg_rel_idx_pairs = torch.stack(sg_transposed[1]).to(args.device, non_blocking=True)
+            sg_rel_labels = torch.stack(sg_transposed[2]).to(args.device, non_blocking=True)
+            mask_sg_rel_labels = torch.stack(sg_transposed[3]).to(args.device, non_blocking=True)
+            sg_num_rels = sg_transposed[4]
+            # import pdb; pdb.set_trace()
+
             targets_transposed = list(zip(*targets))
             input_ids = torch.stack(targets_transposed[0]).to(args.device, non_blocking=True)
             input_mask = torch.stack(targets_transposed[1]).to(args.device, non_blocking=True)
@@ -411,55 +454,83 @@ def main():
             is_next = torch.stack(targets_transposed[4]).to(args.device, non_blocking=True)
             is_img_match = torch.stack(targets_transposed[5]).to(args.device, non_blocking=True)
 
-            return images, input_ids, input_mask, segment_ids, lm_label_ids, is_next
+            # # sg relates
+            if args.use_sg:
+                sg_rel_idx_pairs = sg_rel_idx_pairs.to(args.device, non_blocking=True)
+                mask_sg_rel_idx_pairs = mask_sg_rel_idx_pairs.to(args.device, non_blocking=True)
+                sg_rel_labels = sg_rel_labels.to(args.device, non_blocking=True)
+                mask_sg_rel_labels = mask_sg_rel_labels.to(args.device, non_blocking=True)
 
-        images1, input_ids1, input_mask1, segment_ids1, lm_label_ids1, is_next1 \
+            else:
+                sg_rel_idx_pairs, mask_sg_rel_idx_pairs, sg_rel_labels, mask_sg_rel_labels, sg_num_rels = None, None, None, None, None
+            
+            return images, sg_rel_idx_pairs, mask_sg_rel_idx_pairs, sg_rel_labels, mask_sg_rel_labels, sg_num_rels, input_ids, input_mask, segment_ids, lm_label_ids, is_next
+
+
+        images1, sg_rel_idx_pairs1, mask_sg_rel_idx_pairs1, sg_rel_labels1, mask_sg_rel_labels1, sg_num_rels1, input_ids1, input_mask1, segment_ids1, lm_label_ids1, is_next1 \
             = data_process(batch)
+
         if batch_extra is not None:
-            images2, input_ids2, input_mask2, segment_ids2, lm_label_ids2, is_next2 \
+            images2, sg_rel_idx_pairs2, mask_sg_rel_idx_pairs2, sg_rel_labels2, mask_sg_rel_labels2, sg_num_rels2, input_ids2, input_mask2, segment_ids2, lm_label_ids2, is_next2 \
                 = data_process(batch_extra)
 
         data_time = time.time() - end
 
-        def forward_backward(images, input_ids, input_mask, segment_ids,
-                             lm_label_ids, is_next, loss_weight=1.0):
+        def forward_backward(images, sg_rel_idx_pairs, mask_sg_rel_idx_pairs, sg_rel_labels, mask_sg_rel_labels, sg_num_rels, input_ids, input_mask, segment_ids,
+                             lm_label_ids, is_next, args, loss_weight=1.0, loss_weight_rel_classif=1.0):
             # feature as input
-            image_features = torch.stack(images).to(args.device, non_blocking=True)
+            # image_features = torch.stack(images).to(args.device, non_blocking=True)
 
             outputs = model(input_ids, segment_ids, input_mask,
-                            lm_label_ids, is_next, img_feats=image_features)
+                            lm_label_ids, is_next, img_feats=images, 
+                            sg_rel_idx_pairs = sg_rel_idx_pairs,
+                            sg_rel_labels = sg_rel_labels,
+                            )
 
-            loss = loss_weight * outputs[0]
+            loss_oscar = loss_weight * outputs[0]
+            loss_rel_classif = 0.
+            if args.use_sg:
+                loss_rel_classif = loss_weight_rel_classif * outputs[5]
 
             if args.n_gpu > 1:
-                loss = loss.mean()  # mean() to average on multi-gpu.
+                loss_oscar = loss_oscar.mean()  # mean() to average on multi-gpu.
+                if args.use_sg:
+                    loss_rel_classif = loss_rel_classif.mean()
 
             if args.gradient_accumulation_steps > 1:
-                loss = loss / args.gradient_accumulation_steps
-            loss.backward()
+                loss_oscar = loss_oscar / args.gradient_accumulation_steps
+                if args.use_sg:
+                    loss_rel_classif = loss_rel_classif / args.gradient_accumulation_steps
+            
+            total_loss = loss_oscar + loss_rel_classif
+            total_loss.backward()
 
-            return loss.item(), input_ids.size(0)
+            return {'tr_loss':total_loss, 'loss_oscar': loss_oscar.item(), 'loss_rel_classif': loss_rel_classif.item()}, input_ids.size(0)
 
         start1 = time.time()
-        loss1, nb_tr_example1 = forward_backward(
-            images1, input_ids1, input_mask1,
+        loss_dict1, nb_tr_example1 = forward_backward(
+            images1, sg_rel_idx_pairs1, mask_sg_rel_idx_pairs1, sg_rel_labels1, mask_sg_rel_labels1, sg_num_rels1,
+            input_ids1, input_mask1,
             segment_ids1, lm_label_ids1, is_next1,
-            loss_weight=1.0-args.extra_loss_weight
+            args, loss_weight=1.0-args.extra_loss_weight, loss_weight_rel_classif = args.loss_weight_rel_classif
         )
-        tr_loss += loss1
+        for k in loss_dict.keys():
+            loss_dict[k] += loss_dict1[k]
         nb_tr_examples += nb_tr_example1
         compute_time1 = time.time() - start1
 
-        loss2, nb_tr_example2 = 0.0, 0
+        loss_dict2, nb_tr_example2 = {'tr_loss':0, 'loss_oscar':0, 'loss_rel_classif':0}, 0
         compute_time2 = 0.0
         if batch_extra is not None:
             start2 = time.time()
-            loss2, nb_tr_example2 = forward_backward(
-                images2, input_ids2, input_mask2,
+            loss_dict2, nb_tr_example2 = forward_backward(
+                images2, sg_rel_idx_pairs2, mask_sg_rel_idx_pairs2, sg_rel_labels2, mask_sg_rel_labels2, sg_num_rels2,
+                input_ids2, input_mask2,
                 segment_ids2, lm_label_ids2, is_next2,
-                loss_weight=args.extra_loss_weight
+                loss_weight=args.extra_loss_weight, loss_weight_rel_classif = args.loss_weight_rel_classif
             )
-            tr_loss += loss2
+            for k in loss_dict.keys():
+                loss_dict[k] += loss_dict2[k]
             nb_tr_examples += nb_tr_example2
             compute_time2 = time.time() - start2
 
@@ -482,7 +553,7 @@ def main():
                 'time_info': {'compute': batch_time, 'data': data_time,
                               'compute1': compute_time1,
                               'compute2': compute_time2},
-                'batch_metrics': {'loss': loss1+loss2}
+                'batch_metrics': {k: loss_dict1[k]+loss_dict2[k] for k in loss_dict.keys()}
             }
             params_to_log = {'params': {'bert_lr': optimizer.param_groups[0]["lr"]}}
             meters.update_metrics(metrics_to_log)
@@ -508,11 +579,12 @@ def main():
                 )
 
         if (step + 1) == max_iter or (step + 1) % args.ckpt_period == 0:  # Save a trained model
-            log_json[step+1] = tr_loss
-            train_metrics_total = torch.Tensor([tr_loss, nb_tr_examples, nb_tr_steps]).to(args.device)
+            log_json[step+1] = loss_dict['tr_loss']            
+            train_metrics_total = torch.Tensor([loss_dict['tr_loss'], nb_tr_examples, nb_tr_steps]).to(args.device)
             torch.distributed.all_reduce(train_metrics_total)
             # reset metrics
-            tr_loss = 0
+            
+            loss_dict['tr_loss'] = 0
             nb_tr_examples, nb_tr_steps = 0, 0
 
             if get_rank() == 0:

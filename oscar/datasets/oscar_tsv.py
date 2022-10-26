@@ -12,6 +12,10 @@ from torch.utils.data import Dataset
 from oscar.utils.tsv_file import TSVFile
 from oscar.utils.misc import load_from_yaml_file
 
+import sys
+sys.path.append('/fsx/harman/sgg_benchmark_pytorch17/scene_graph_benchmark')
+import pickle
+
 
 class OscarTSVDataset(Dataset):
     def __init__(self, yaml_file, args=None, tokenizer=None, seq_len=35,
@@ -23,8 +27,11 @@ class OscarTSVDataset(Dataset):
         self.tokenizer = tokenizer
         self.seq_len = seq_len
         self.on_memory = on_memory
+        self.use_sg = args.use_sg
+        self.max_datapoints = args.max_datapoints
+
         self.corpus_lines = corpus_lines  # number of non-empty lines in input corpus
-        self.corpus_tsvfile = TSVFile(os.path.join(self.root, self.cfg['corpus_file']))
+        self.corpus_tsvfile = TSVFile(os.path.join(self.root, self.cfg['corpus_file'])) # having image id, and text
         if 'textb_sample_mode' in kwargs:
             self.textb_sample_mode = kwargs['textb_sample_mode']
         else:
@@ -41,15 +48,31 @@ class OscarTSVDataset(Dataset):
                 self.image_label_path[key] = os.path.join(self.root, val)
         self.image_feature_path = self.cfg['image_feature_path']
         self.image_file_name = 'features.tsv'
+
+        # import pdb; pdb.set_trace() # check the lines below
         if args.data_dir is not None:
             for key, val in self.image_feature_path.items():
                 # get the absolute path
                 if key in self.datasets_names:
-                    self.image_feature_path[key] = os.path.join(args.data_dir,
-                                                                val)
+                    self.image_feature_path[key] = os.path.join(args.data_dir,val) # TODO: this logic is probably wrong, since val is the full path. note os.path.join() takes teh last full apth, and ignores the previous ones if the last path is absolute
                 else:
                     logging.info("Data {} with path {} is not used in the "
                                  "training.".format(key, val))
+
+        ########### for scene graphs ################
+        if self.use_sg:
+            self.image_sg_path = self.cfg['image_sg_path']
+            if args.data_dir is not None:
+                for key, val in self.image_sg_path.items():
+                    # get the absolute path
+                    if key in self.datasets_names:
+                        self.image_sg_path[key] = os.path.join(args.data_dir,
+                                                                    val)
+                    else:
+                        logging.info("SG Data {} with path {} is not used in the "
+                                    "training.".format(key, val))
+        #############################################
+
         self.encoding = encoding
         self.current_doc = 0  # to avoid random sentence from same doc
         self.current_img = '' # to avoid random sentence from same image
@@ -92,7 +115,8 @@ class OscarTSVDataset(Dataset):
             self.imgid2labels = {}
             self.corpus_lines = 0
             max_tokens = 0
-            for line_no in tqdm(range(len(self.corpus_tsvfile))):
+            max_datpnts = args.max_datapoints if args.max_datapoints > 0 else len(self.corpus_tsvfile)
+            for line_no in tqdm(range(max_datpnts)):
                 doc = []
                 row = self.corpus_tsvfile.seek(line_no)
                 img_info = row[0].split('_')
@@ -210,6 +234,7 @@ class OscarTSVDataset(Dataset):
         return {"height": imgid2labels["image_h"], "width": imgid2labels["image_w"]}
 
     def __getitem__(self, item):
+        # import pdb; pdb.set_trace()
         cur_id = self.sample_counter
         self.sample_counter += 1
         if not self.on_memory:
@@ -234,26 +259,78 @@ class OscarTSVDataset(Dataset):
         # get image feature
         img_feat = self.get_img_feature(img_id)
         if img_feat.shape[0] >= self.args.max_img_seq_length:
-            img_feat = img_feat[0:self.args.max_img_seq_length, ]
+            img_feat = img_feat[0:self.args.max_img_seq_length, ] # truncating the img features to be 50 length max!
             img_feat_len = img_feat.shape[0]
         else:
             img_feat_len = img_feat.shape[0]
             padding_matrix = torch.zeros((self.args.max_img_seq_length - img_feat.shape[0], img_feat.shape[1]))
             img_feat = torch.cat((img_feat, padding_matrix), 0)
 
+        ##############SG################
+        if self.use_sg:
+            # import pdb; pdb.set_trace()
+            img_sg = self.get_img_sg(img_id, img_feat.device)
+            rel_idx_pairs, rel_labels = img_sg['rel_idx_pairs'], img_sg['rel_labels']
+
+            # remove the relations we cant deal with (since we have removed some object, because we need to maintain max_img_seq_length)
+            keep_rel_labels = ~(torch.ge(rel_idx_pairs[:, 0],self.args.max_img_seq_length) + torch.ge(rel_idx_pairs[:, 1],self.args.max_img_seq_length))# [true, trues, false, ....] places of false means the rel_idx_pairs has value > max_img_seq_length
+            rel_labels = rel_labels[keep_rel_labels==True]
+            rel_idx_pairs = rel_idx_pairs[keep_rel_labels==True]
+
+            rel_len = rel_idx_pairs.shape[0]
+            assert rel_len == rel_labels.shape[0]
+
+            if rel_len <= self.args.max_rel_length:
+                padding_rel_idx = torch.zeros((self.args.max_rel_length - rel_len, rel_idx_pairs.shape[1]))
+                padding_rel_labels = -1*torch.ones((self.args.max_rel_length - rel_len)) # making tensors having -1's, so that we can do ignore_index=-1, while calculating the loss
+
+                rel_idx_pairs = torch.cat((rel_idx_pairs, padding_rel_idx), 0)
+                rel_labels = torch.cat((rel_labels, padding_rel_labels), 0)
+
+                mask_rel_idx_pairs = torch.cat((torch.ones((rel_len, rel_idx_pairs.shape[1])), torch.zeros((self.args.max_rel_length - rel_len, rel_idx_pairs.shape[1]))), 0)
+                mask_rel_labels = torch.cat((torch.ones((rel_len)), torch.zeros((self.args.max_rel_length - rel_len))), 0)
+                
+            else:
+                raise NotImplementedError()
+            # import pdb; pdb.set_trace()
+
+        else:
+            rel_idx_pairs, mask_rel_idx_pairs, rel_labels, mask_rel_labels, rel_len = None, None, None, None, None
+        ################################
+        
         # transform sample to features
         cur_features = convert_example_to_features(self.args, cur_example,
                                                    self.seq_len, self.tokenizer,
                                                    img_feat_len)
 
-        return img_feat, (
+        
+
+
+        # number of image features should be the same as the number of object labels
+        try:
+            assert img_feat_len == img_sg['obj_labels'].shape[0] or (img_sg['obj_labels'].shape[0]>self.args.max_img_seq_length and img_feat_len==self.args.max_img_seq_length)
+        except:
+            import pdb; pdb.set_trace()
+
+
+        return (img_feat, img_feat_len), (
             torch.tensor(cur_features.input_ids, dtype=torch.long),
             torch.tensor(cur_features.input_mask, dtype=torch.long),
             torch.tensor(cur_features.segment_ids, dtype=torch.long),
             torch.tensor(cur_features.lm_label_ids, dtype=torch.long),
             torch.tensor(cur_features.is_next),
             torch.tensor(cur_features.is_img_match),
-        ), item
+        ), (rel_idx_pairs, mask_rel_idx_pairs, rel_labels, mask_rel_labels, rel_len), item
+        # return img_feat, (
+        #     torch.tensor(cur_features.input_ids, dtype=torch.long),
+        #     torch.tensor(cur_features.input_mask, dtype=torch.long),
+        #     torch.tensor(cur_features.segment_ids, dtype=torch.long),
+        #     torch.tensor(cur_features.lm_label_ids, dtype=torch.long),
+        #     torch.tensor(cur_features.is_next),
+        #     torch.tensor(cur_features.is_img_match),
+        # ), item
+
+
         # return cur_tensors
 
     def random_sent(self, index):
@@ -284,6 +361,21 @@ class OscarTSVDataset(Dataset):
         assert len(t1) > 0
         assert len(t2) > 0 or not self.args.use_b
         return img_id, t1, t2, label, img_match_label
+
+    def get_img_sg(self, image_id, device):
+        """
+        Get the scene graph corresponding to the image with image id = img_id
+        :param img_id: image index
+        :return: scene graph of the image, obtained using the object detector and a relation prediction algorithm
+        """
+        # import pdb; pdb.set_trace()
+        img_infos = image_id.split('_')
+        dataset_name = img_infos[0]
+        if dataset_name=='coco':
+            sg_path = os.path.join(self.image_sg_path[dataset_name], str(image_id).split('_')[-1] + '.pt')
+        sg_dict = torch.load(sg_path, map_location=device)
+        return sg_dict
+
 
     def get_corpus_line(self, item):
         """
@@ -573,6 +665,7 @@ class OscarTSVDataset(Dataset):
                                  dtype=np.float32).reshape(
                 (num_boxes, self.args.img_feature_dim))
             feat = torch.from_numpy(feat)
+            # feat = torch.from_numpy(np.array(feat))
             return feat
 
         return None
