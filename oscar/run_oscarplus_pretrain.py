@@ -20,8 +20,10 @@ import transformers
 from oscar.modeling.modeling_bert import BertImgForPreTraining
 # from transformers.pytorch_transformers import (WEIGHTS_NAME, BertConfig,
 #                                   BertTokenizer)
-from transformers import (WEIGHTS_NAME, BertConfig,
-                                  BertTokenizer)
+# from transformers import (WEIGHTS_NAME, BertConfig,
+#                                   BertTokenizer)
+from transformers import WEIGHTS_NAME
+from transformers import AutoConfig, AutoTokenizer
 
 from oscar.datasets.build import make_data_loader
 
@@ -41,10 +43,9 @@ logger = logging.getLogger(__name__)
 # ALL_MODELS = sum((tuple(conf.pretrained_config_archive_map) for conf in (BertConfig,)), ())
 
 
-MODEL_CLASSES = {
-    'bert': (BertConfig, BertImgForPreTraining, BertTokenizer),
-}
-
+# MODEL_CLASSES = {
+#     'bert': (BertConfig, BertImgForPreTraining, BertTokenizer),
+# }
 
 """ ****** Pretraining ****** """
 
@@ -146,7 +147,11 @@ def main():
 
     ## scene graph related
     parser.add_argument("--use_sg", action='store_true',
-                        help="Whether to sue scene graph information while training")
+                        help="Whether to use scene graph information while training")
+    parser.add_argument("--use_objfeat_rel_loss", action='store_true',
+                        help="Whether to use objfeat_rel_loss while training")
+    parser.add_argument("--use_objtag_rel_loss", action='store_true',
+                        help="Whether to use objtag_rel_loss while training")
     parser.add_argument("--max_rel_length", default=100, type=int,
                         help="The maximum total input number of relations \n"
                              "Sequences longer than this will be truncated, and sequences shorter than this will be padded.")
@@ -163,6 +168,8 @@ def main():
     ## debug related
     parser.add_argument("--max_datapoints", type=int, default=-1,
                         help="max datapoints to load")
+    parser.add_argument("--debug", action='store_true',
+                        help="debug mode")
                         
     # distributed
     parser.add_argument('--gpu_ids', type=str, default='-1')
@@ -189,6 +196,12 @@ def main():
         wandb.init(entity="harman", project = 'SGVL', config=args)
         wandb.run.name = wandb.run.name.split('-')[-1] ## a number is sufficient for the run name
         args.output_dir = os.path.join(args.output_dir, wandb.run.name)
+
+
+
+    MODEL_CLASSES = {
+        'bert': (AutoConfig.from_pretrained(args.bert_model), BertImgForPreTraining, AutoTokenizer.from_pretrained(args.bert_model)),
+    }
 
 
     if args.gpu_ids != '-1':

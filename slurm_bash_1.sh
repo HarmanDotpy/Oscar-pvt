@@ -29,7 +29,7 @@ conda activate meter_efa_dinoclone
 
 
 # Without SG
-srun python -m torch.distributed.launch --nproc_per_node=8 oscar/run_oscarplus_pretrain.py \
+srun python -m torch.distributed.launch --nproc_per_node=1 oscar/run_oscarplus_pretrain.py \
     --use_b 1 \
     --max_grad_norm 10.0 --gradient_accumulation_steps 1 \
     --use_img_layernorm 1 \

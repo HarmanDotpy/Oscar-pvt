@@ -15,9 +15,9 @@ import torch.nn.functional as F
 # from transformers.pytorch_transformers.file_utils import cached_path
 import transformers
 from transformers.models.bert.modeling_bert import (BertConfig,
-        load_tf_weights_in_bert, BERT_PRETRAINED_MODEL_ARCHIVE_LIST,
+        load_tf_weights_in_bert, 
         BertPreTrainedModel)
-BERT_PRETRAINED_MODEL_ARCHIVE_MAP = BERT_PRETRAINED_MODEL_ARCHIVE_LIST # Hack, see https://github.com/huggingface/transformers/issues/5842
+# BERT_PRETRAINED_MODEL_ARCHIVE_MAP = BERT_PRETRAINED_MODEL_ARCHIVE_LIST # Hack, see https://github.com/huggingface/transformers/issues/5842
 # from transformers.modeling_utils import (PreTrainedModel,
 #     WEIGHTS_NAME, TF_WEIGHTS_NAME)
 from transformers.modeling_utils import PreTrainedModel
@@ -32,7 +32,7 @@ class CaptionPreTrainedModel(BertPreTrainedModel):
     """ Expand base class for image captioning modeling.
     """
     config_class = BertConfig
-    pretrained_model_archive_map = BERT_PRETRAINED_MODEL_ARCHIVE_MAP
+    # pretrained_model_archive_map = BERT_PRETRAINED_MODEL_ARCHIVE_MAP
     load_tf_weights = load_tf_weights_in_bert
     base_model_prefix = 'bert'
 

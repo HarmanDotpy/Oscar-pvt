@@ -335,7 +335,8 @@ class ImageBertForSequenceClassification(BertPreTrainedModel):
                 )
         else:
             self.classifier = nn.Linear(config.hidden_size, self.config.num_labels)  # original
-        self.apply(self.init_weights)
+        # self.apply(self.init_weights)
+        self.post_init()
 
     def init_code_embedding(self, em):
         self.bert.code_embeddings.weight.data = em.clone()
@@ -367,7 +368,10 @@ class ImageBertForSequenceClassification(BertPreTrainedModel):
                     loss = instance_bce_with_logits(logits, labels)
                 else: # cross_entropy [GQA, Retrieval, Captioning]
                     loss_fct = CrossEntropyLoss()
+                    # try:
                     loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+                    # except:
+                    #     import pdb; pdb.set_trace()
             outputs = (loss,) + outputs
         return outputs
 
@@ -411,7 +415,9 @@ class ImageBertForMultipleChoice(BertPreTrainedModel):
         else:
             self.classifier = nn.Linear(config.num_choice*config.hidden_size, self.config.num_labels)  # original
 
-        self.apply(self.init_weights)
+        # self.apply(self.init_weights)
+        self.post_init()
+        
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None,
                 position_ids=None, head_mask=None, img_feats=None):
@@ -545,7 +551,9 @@ class OscarForMultipleChoice(BertPreTrainedModel):
         else:
             self.classifier = nn.Linear(config.hidden_size, config.num_labels)  # original
 
-        self.apply(self.init_weights)
+        # self.apply(self.init_weights)
+        self.post_init()
+        
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None,
                 position_ids=None, head_mask=None, img_feats=None):

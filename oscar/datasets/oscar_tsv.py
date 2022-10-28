@@ -248,6 +248,8 @@ class OscarTSVDataset(Dataset):
         tokens_a = self.tokenizer.tokenize(t1)
         if self.args.use_b:
             tokens_b = self.tokenizer.tokenize(t2)
+            if self.args.debug:
+                import pdb; pdb.set_trace()
         else:
             tokens_b = None
 
@@ -824,6 +826,8 @@ def convert_example_to_features(args, example, max_seq_length, tokenizer,
         tokens.append("[SEP]")
         segment_ids.append(1)
 
+    if args.debug:
+        import pdb; pdb.set_trace()
     input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
     # The mask has 1 for real tokens and 0 for padding tokens. Only real tokens are attended to.
