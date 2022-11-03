@@ -105,125 +105,8 @@ class GQADataset(Dataset):
         self.examples, self.labels = _load_dataset(args, name) # self.labels is a ans2label.pkl file
         self.label_map = {label: i for i, label in enumerate(self.labels)}
 
-        # if self.args.load_fast:
-        #     self.features = self.tensorize(args, cls_token_at_end=bool(self.args.model_type in ['xlnet']), # xlnet has a cls token at the end
-        #         cls_token=self.tokenizer.cls_token,
-        #         sep_token=self.tokenizer.sep_token,
-        #         cls_token_segment_id=2 if self.args.model_type in ['xlnet'] else 0,
-        #         pad_on_left=bool(self.args.model_type in ['xlnet']), # pad on the left for xlnet
-        #         pad_token_segment_id=4 if self.args.model_type in ['xlnet'] else 0)
-        # else:
-        #     pass
-
         logger.info('%s Data Examples: %d' % (name, len(self.examples)))
 
-
-    # def tensorize(self, cls_token_at_end=False, pad_on_left=False,
-    #                 cls_token='[CLS]', sep_token='[SEP]', pad_token=0,
-    #                 sequence_a_segment_id=0, sequence_b_segment_id=1,
-    #                 cls_token_segment_id=1, pad_token_segment_id=0,
-    #                 mask_padding_with_zero=True):
-
-    #     # debug:
-    #     debug_size = 500
-    #     features = []
-
-    #     for (ex_index, example) in enumerate(self.examples[0: ]):
-    #         if len(example.label) == 0: continue
-    #         if ex_index % 10000 == 0: logger.info("Tensorizing example %d of %d" % (ex_index, len(self.examples)))
-
-    #         tokens_a = self.tokenizer.tokenize(example.text_a)
-
-    #         tokens_b = None
-    #         if example.text_b:
-    #             tokens_b = self.tokenizer.tokenize(example.text_b)
-    #             # Modifies `tokens_a` and `tokens_b` in place so that the total length is less than the specified length.
-    #             # Account for [CLS], [SEP], [SEP] with "- 3"
-    #             _truncate_seq_pair(tokens_a, tokens_b, self.args.max_seq_length - 3)
-    #         else:
-    #             # Account for [CLS] and [SEP] with "- 2"
-    #             if len(tokens_a) > self.args.max_seq_length - 2:
-    #                 tokens_a = tokens_a[:(self.args.max_seq_length - 2)]
-
-    #         tokens = tokens_a + [sep_token]
-    #         segment_ids = [sequence_a_segment_id] * len(tokens)
-
-    #         if tokens_b:
-    #             tokens += tokens_b + [sep_token]
-    #             segment_ids += [sequence_b_segment_id] * (len(tokens_b) + 1)
-
-    #         if cls_token_at_end:
-    #             tokens = tokens + [cls_token]
-    #             segment_ids = segment_ids + [cls_token_segment_id]
-    #         else:
-    #             tokens = [cls_token] + tokens
-    #             segment_ids = [cls_token_segment_id] + segment_ids
-
-    #         input_ids = self.tokenizer.convert_tokens_to_ids(tokens)
-
-    #         # The mask has 1 for real tokens and 0 for padding tokens. Only real tokens are attended to.
-    #         input_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
-
-    #         # Zero-pad up to the sequence length.
-    #         padding_length = self.args.max_seq_length - len(input_ids)
-    #         if pad_on_left:
-    #             input_ids = ([pad_token] * padding_length) + input_ids
-    #             input_mask = ([0 if mask_padding_with_zero else 1] * padding_length) + input_mask
-    #             segment_ids = ([pad_token_segment_id] * padding_length) + segment_ids
-    #         else:
-    #             input_ids = input_ids + ([pad_token] * padding_length)
-    #             input_mask = input_mask + ([0 if mask_padding_with_zero else 1] * padding_length)
-    #             segment_ids = segment_ids + ([pad_token_segment_id] * padding_length)
-
-    #         assert len(input_ids) == self.args.max_seq_length
-    #         assert len(input_mask) == self.args.max_seq_length
-    #         assert len(segment_ids) == self.args.max_seq_length
-
-    #         # image features
-    #         img_feat = self.img_features[example.img_key] # torch
-    #         #img_feat = self.img_features.item().get(example.img_key)  # numpy
-    #         if img_feat.shape[0] > self.args.max_img_seq_length:
-    #             img_feat = img_feat[0:self.args.max_img_seq_length, ]
-    #             if self.args.max_img_seq_length > 0:
-    #                 input_mask = input_mask + [1 if mask_padding_with_zero else 0] * img_feat.shape[0]
-    #                 # segment_ids += [sequence_b_segment_id] * img_feat.shape[0]
-    #         else:
-    #             if self.args.max_img_seq_length > 0:
-    #                 input_mask = input_mask + [1 if mask_padding_with_zero else 0] * img_feat.shape[0]
-    #                 # segment_ids = segment_ids + [sequence_b_segment_id] * img_feat.shape[0]
-    #             padding_matrix = torch.zeros((self.args.max_img_seq_length - img_feat.shape[0], img_feat.shape[1]))
-    #             img_feat = torch.cat((img_feat, padding_matrix), 0)
-    #             if self.args.max_img_seq_length > 0:
-    #                 input_mask = input_mask + ([0 if mask_padding_with_zero else 1] * padding_matrix.shape[0])
-    #                 # segment_ids = segment_ids + [pad_token_segment_id] * padding_matrix.shape[0]
-
-    #         if self.args.output_mode == "classification":
-    #             label_id = [self.label_map[l] for l in example.label]
-    #             score = example.score
-    #         elif self.args.output_mode == "regression":
-    #             label_id = float(example.label)
-    #         else:
-    #             raise KeyError(self.args.output_mode)
-
-    #         if ex_index < 5:
-    #             logger.info("*** Example ***")
-    #             logger.info("guid: %s" % (example.guid))
-    #             logger.info("tokens: %s" % " ".join([str(x) for x in tokens]))
-    #             logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
-    #             logger.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
-    #             logger.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-    #             logger.info("label: %s (id = %s)" % (example.label, label_id))
-    #             logger.info("score: %s (score = %s)" % (example.score, score))
-
-    #         new_scores = target_tensor(len(self.labels), label_id, score)
-    #         #features.append(InputFeat(input_ids=input_ids, input_mask=input_mask, segment_ids=segment_ids, label_id=label_id, score=score, img_feat=img_feat))
-    #         features.append((torch.tensor(input_ids, dtype=torch.long),
-    #                         torch.tensor(input_mask, dtype=torch.long),
-    #                         torch.tensor(segment_ids, dtype=torch.long),
-    #                         torch.tensor([label_id[0]], dtype=torch.long),
-    #                         torch.tensor(new_scores, dtype=torch.float), img_feat))
-
-    #     return features
     
     def tensorize_example(self, example, cls_token_at_end=False, pad_on_left=False,
                     cls_token='[CLS]', sep_token='[SEP]', pad_token=0,
@@ -340,122 +223,7 @@ class GQADataset(Dataset):
                     img_feat,
                     torch.tensor([example.q_id], dtype=torch.long))
 
-    # def tensorize_example(self, example, cls_token_at_end=False, pad_on_left=False,
-    #                 cls_token='[CLS]', sep_token='[SEP]', pad_token=0,
-    #                 sequence_a_segment_id=0, sequence_b_segment_id=1,
-    #                 cls_token_segment_id=1, pad_token_segment_id=0,
-    #                 mask_padding_with_zero=True):
-
-    #     tokens_a = self.tokenizer.tokenize(example.text_a)
-
-    #     tokens_b = None
-    #     if example.text_b:
-    #         tokens_b = self.tokenizer.tokenize(example.text_b)
-    #         # Modifies `tokens_a` and `tokens_b` in place so that the total length is less than the specified length.
-    #         # Account for [CLS], [SEP], [SEP] with "- 3"
-    #         _truncate_seq_pair(tokens_a, tokens_b, self.args.max_seq_length - 3)
-    #     else:
-    #         # Account for [CLS] and [SEP] with "- 2"
-    #         if len(tokens_a) > self.args.max_seq_length - 2:
-    #             tokens_a = tokens_a[:(self.args.max_seq_length - 2)]
-
-    #     tokens = tokens_a + [sep_token]
-    #     segment_ids = [sequence_a_segment_id] * len(tokens)
-
-    #     if tokens_b:
-    #         tokens += tokens_b + [sep_token]
-    #         segment_ids += [sequence_b_segment_id] * (len(tokens_b) + 1)
-
-    #     if cls_token_at_end:
-    #         tokens = tokens + [cls_token]
-    #         segment_ids = segment_ids + [cls_token_segment_id]
-    #     else:
-    #         tokens = [cls_token] + tokens
-    #         segment_ids = [cls_token_segment_id] + segment_ids
-
-    #     input_ids = self.tokenizer.convert_tokens_to_ids(tokens)
-
-    #     # The mask has 1 for real tokens and 0 for padding tokens. Only real tokens are attended to.
-    #     input_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
-
-    #     # Zero-pad up to the sequence length.
-    #     padding_length = self.args.max_seq_length - len(input_ids)
-    #     if pad_on_left:
-    #         input_ids = ([pad_token] * padding_length) + input_ids
-    #         input_mask = ([0 if mask_padding_with_zero else 1] * padding_length) + input_mask
-    #         segment_ids = ([pad_token_segment_id] * padding_length) + segment_ids
-    #     else:
-    #         input_ids = input_ids + ([pad_token] * padding_length)
-    #         input_mask = input_mask + ([0 if mask_padding_with_zero else 1] * padding_length)
-    #         segment_ids = segment_ids + ([pad_token_segment_id] * padding_length)
-
-    #     assert len(input_ids) == self.args.max_seq_length
-    #     assert len(input_mask) == self.args.max_seq_length
-    #     assert len(segment_ids) == self.args.max_seq_length
-
-    #     # image features
-    #     if self.args.img_feature_type.startswith('dis_code'):
-    #         img_feat = self.img_features[example.img_key]
-
-    #         if self.args.img_feature_type == 'dis_code_ln': # for discrete code image representation
-    #             img_feat = img_feat.reshape(-1, img_feat.shape[0])
-
-    #         if self.args.img_feature_type == 'dis_code_t': # transposed
-    #             input_mask = input_mask + [1 if mask_padding_with_zero else 0] * 64
-    #         else:
-    #             input_mask = input_mask + [1 if mask_padding_with_zero else 0] * img_feat.shape[0]
-    #     else:
-    #         if self.args.img_feat_format == 'pt':
-    #             img_feat = self.img_features[example.img_key] #[:, 0:self.args.img_feature_dim]  # torch
-    #         elif self.args.img_feat_format == 'tsv':
-    #             img_features = self.get_img_feature(str(example.img_key))
-    #             img_feat = torch.from_numpy(img_features)
-
-    #         if img_feat.shape[0] > self.args.max_img_seq_length:
-    #             img_feat = img_feat[0:self.args.max_img_seq_length, ]
-    #             if self.args.max_img_seq_length > 0:
-    #                 input_mask = input_mask + [1 if mask_padding_with_zero else 0] * img_feat.shape[0]
-    #                 # segment_ids += [sequence_b_segment_id] * img_feat.shape[0]
-    #         else:
-    #             if self.args.max_img_seq_length > 0:
-    #                 input_mask = input_mask + [1 if mask_padding_with_zero else 0] * img_feat.shape[0]
-    #                 # segment_ids = segment_ids + [sequence_b_segment_id] * img_feat.shape[0]
-    #             padding_matrix = torch.zeros((self.args.max_img_seq_length - img_feat.shape[0], img_feat.shape[1]))
-    #             img_feat = torch.cat((img_feat, padding_matrix), 0)
-    #             if self.args.max_img_seq_length > 0:
-    #                 input_mask = input_mask + ([0 if mask_padding_with_zero else 1] * padding_matrix.shape[0])
-    #                 # segment_ids = segment_ids + [pad_token_segment_id] * padding_matrix.shape[0]
-
-    #     if self.args.output_mode == "classification":
-    #         if (example.label is None):
-    #             label_id = [0]
-    #             score = [0]
-    #         elif len(example.label) == 0:
-    #             label_id = [0]
-    #             score = [0]
-    #         else:
-    #             label_id = [self.label_map[l] for l in example.label]
-    #             score = example.score
-    #             # if score != 0:
-    #             # import pdb; pdb.set_trace()
-    #     elif self.args.output_mode == "regression":
-    #         if len(example.label) == 0:
-    #             label_id = 0
-    #         else:
-    #             label_id = float(example.label)
-    #     else:
-    #         raise KeyError(self.args.output_mode)
-
-    #     # new_scores = target_tensor(len(self.labels), label_id, score)
-
-    #     return (torch.tensor(input_ids, dtype=torch.long),
-    #             torch.tensor(input_mask, dtype=torch.long),
-    #             torch.tensor(segment_ids, dtype=torch.long),
-    #             torch.tensor([label_id[0]], dtype=torch.long),
-    #             torch.tensor([label_id[0]], dtype=torch.long),
-    #             img_feat,
-    #             torch.tensor([example.q_id], dtype=torch.long))
-
+   
     def __getitem__(self, index):
         # if self.args.load_fast:
         #     example = self.features[index]
@@ -482,15 +250,8 @@ class GQADataset(Dataset):
         if self.img_feature_file is None:
             img_feature_path = os.path.join(self.args.img_feat_dir, 'features.tsv'.format(self.name))
             t_s = time.time()
-            self.img_feature_file = open(img_feature_path, 'r')
 
             self.img_feature_file = TSVFile(img_feature_path)
-
-                # self.img_feature_file[dataset_name][chunk_fp_id] = TSVFile(chunk_fp)
-                # chunk_offsetmap = os.path.join(os.path.dirname(chunk_fp), 'imageid2idx.json')
-                # assert os.path.isfile(chunk_offsetmap), "Imageid2idx file {} does not exists!".format(chunk_offsetmap)
-                # self.img_feat_offset_map[dataset_name][
-                #     chunk_fp_id] = json.load(open(chunk_offsetmap, 'r'))
 
             t_e = time.time()
             logger.info("Open {} image time: {}".format(self.name, (t_e - t_s)))
@@ -563,234 +324,6 @@ def trim_batch(batch):
             batch_tensors[ele_id][b_id] = ele
     return batch_tensors
 
-
-# def train(args, train_dataset, eval_dataset, model, tokenizer):
-#     """ Train the model """
-#     #if args.local_rank in [-1, 0]: tb_writer = SummaryWriter()
-
-#     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
-#     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
-#     train_dataloader = DataLoader(train_dataset, num_workers=args.num_workers, sampler=train_sampler, batch_size=args.train_batch_size) #, collate_fn=trim_batch)
-
-#     if args.max_steps > 0:
-#         t_total = args.max_steps
-#         args.num_train_epochs = args.max_steps // (len(train_dataloader) // args.gradient_accumulation_steps) + 1
-#     else:
-#         t_total = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
-
-#     # Prepare optimizer and schedule (linear warmup and decay)
-#     no_decay = ['bias', 'LayerNorm.weight']
-#     optimizer_grouped_parameters = [
-#         {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': args.weight_decay},
-#         {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
-#         ]
-#     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-#     #scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=t_total) # original
-
-#     if args.scheduler == "constant":
-#         # scheduler = WarmupConstantSchedule(optimizer, warmup_steps=args.warmup_steps)
-#         raise NotImplementedError()
-#     elif args.scheduler == "linear":
-#         # scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=t_total)
-#         scheduler = get_linear_schedule_with_warmup(optimizer,
-#                                      num_warmup_steps=args.warmup_steps,
-#                                      num_training_steps=t_total)
-
-#     if args.fp16:
-#         try:
-#             from apex import amp
-#         except ImportError:
-#             raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
-#         model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
-
-#     # multi-gpu training (should be after apex fp16 initialization)
-#     if args.n_gpu > 1:
-#         model = torch.nn.DataParallel(model)
-
-#     # Distributed training (should be after apex fp16 initialization)
-#     if args.local_rank != -1:
-#         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
-
-#     # Train!
-#     logger.info("***** Running training *****")
-#     logger.info("  Num examples = %d", len(train_dataset))
-#     logger.info("  Num Epochs = %d", args.num_train_epochs)
-#     logger.info("  Instantaneous batch size per GPU = %d", args.per_gpu_train_batch_size)
-#     logger.info("  Total train batch size (w. parallel, distributed & accumulation) = %d",
-#                    args.train_batch_size * args.gradient_accumulation_steps * (torch.distributed.get_world_size() if args.local_rank != -1 else 1))
-#     logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
-#     logger.info("  Total optimization steps = %d", t_total)
-
-#     global_step = 0
-#     tr_loss, logging_loss = 0.0, 0.0
-#     model.zero_grad()
-#     #train_iterator = trange(int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0])
-#     set_seed(args.seed, args.n_gpu)  # Added here for reproductibility (even between python 2 and 3)
-
-#     best_score = 0
-#     best_model = {
-#         'epoch': 0,
-#         'model': copy.deepcopy(model), #model.state_dict(),
-#         'optimizer_state': optimizer.state_dict()
-#     }
-
-#     #eval_dataset = load_and_cache_examples(args, args.task_name, tokenizer, evaluate=True)
-
-#     for epoch in range(int(args.num_train_epochs)):
-#     #for epoch in train_iterator:
-#         #epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
-#         total_loss = 0
-#         train_score = 0
-#         total_norm = 0
-#         count_norm = 0
-
-#         if args.adjust_dp and epoch>=3:
-#             logger.info("change droput ratio {} to 0.3".format(args.drop_out))
-#             if hasattr(model, 'module'):
-#                 model.module.dropout.p = 0.3
-#                 model.module.bert.dropout.p = 0.3
-#                 model.module.bert.embeddings.dropout.p = 0.3
-#             else:
-#                 model.dropout.p = 0.3
-#                 model.bert.dropout.p = 0.3
-#                 model.bert.embeddings.dropout.p = 0.3
-
-#         if args.adjust_loss and epoch>=args.adjust_loss_epoch:
-#             logger.info("\t change loss type from kl to bce")
-#             model.loss_type = 'bce'
-
-#         # debug
-#         #epoch = 20
-#         #global_step = epoch*math.ceil(len(train_dataset)/(args.train_batch_size * args.gradient_accumulation_steps * (torch.distributed.get_world_size() if args.local_rank != -1 else 1)))
-
-#         t_start = time.time()
-#         for step, batch in enumerate(train_dataloader):
-#             model.train()
-#             batch = tuple(t.to(args.device) for t in batch)
-#             inputs = {'input_ids':      batch[0],
-#                       'attention_mask': batch[1],
-#                       'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,  # XLM don't use segment_ids
-#                       'labels':         batch[4],
-#                       'img_feats':      None if args.img_feature_dim == -1 else batch[5]}
-#             outputs = model(**inputs)
-
-#             #loss = outputs[0]  # model outputs are always tuple in pytorch-transformers (see doc)
-#             loss, logits = outputs[:2]
-
-#             #loss = instance_bce_with_logits(logits, batch[4])
-
-#             if args.n_gpu > 1: loss = loss.mean() # mean() to average on multi-gpu parallel training
-
-#             if args.gradient_accumulation_steps > 1:
-#                 loss = loss / args.gradient_accumulation_steps
-
-#             if args.fp16:
-#                 with amp.scale_loss(loss, optimizer) as scaled_loss:
-#                     scaled_loss.backward()
-#                 torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
-#             else:
-#                 loss.backward()
-#                 total_norm += torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
-#                 count_norm += 1
-
-#             batch_score = compute_score_with_logits(logits, batch[4]).sum()
-#             train_score += batch_score.item()
-
-#             tr_loss += loss.item()
-#             if (step + 1) % args.gradient_accumulation_steps == 0:
-#                 scheduler.step()  # Update learning rate schedule
-#                 optimizer.step()
-#                 model.zero_grad()
-#                 global_step += 1
-
-#                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:# Log metrics
-#                     if args.local_rank not in [-1, 0]:
-#                         torch.distributed.barrier()
-
-#                     if args.local_rank in [-1, 0] and args.evaluate_during_training:
-#                     #if args.local_rank == -1 and args.evaluate_during_training:  # Only evaluate when single GPU otherwise metrics may not average well
-#                         logger.info("Epoch: %d, global_step: %d" % (epoch, global_step))
-#                         eval_result, eval_score, upper_bound = evaluate(args, model, eval_dataset, prefix=global_step)
-#                         if eval_score > best_score:
-#                             best_score = eval_score
-#                             best_model['epoch'] = epoch
-#                             best_model['model'] = copy.deepcopy(model)
-
-#                         logger.info("EVALERR: {}%".format(100 * best_score))
-
-#                     if args.local_rank == 0:
-#                         torch.distributed.barrier()
-
-#                     logging_loss = tr_loss
-
-#             #if args.max_steps > 0 and global_step > args.max_steps:
-#             #    epoch_iterator.close()
-#             #    break
-
-#         # evaluation
-#         logger.info("Epoch: %d, global_step: %d" % (epoch, global_step))
-#         eval_result, eval_score, upper_bound = evaluate(args, model, eval_dataset, prefix=global_step)
-#         if eval_score > best_score:
-#             best_score = eval_score
-#             best_model['epoch'] = epoch
-#             best_model['model'] = copy.deepcopy(model)
-#             #best_model['optimizer'] = copy.deepcopy(optimizer.state_dict())
-
-#         # save checkpoints
-#         if (args.local_rank in [-1, 0]) and (args.save_epoch>0 and epoch%args.save_epoch == 0) and (epoch>args.save_after_epoch):
-#             output_dir = os.path.join(args.output_dir, 'checkpoint-{}-{}'.format(epoch, global_step))
-#             if not os.path.exists(output_dir): os.makedirs(output_dir)
-#             model_to_save = best_model['model'].module if hasattr(model, 'module') else best_model['model']  # Take care of distributed/parallel training
-
-#             save_num = 0
-#             while (save_num < 10):
-#                 try:
-#                     logger.info("Saving model attempt: {}".format(save_num))
-#                     model_to_save.save_pretrained(output_dir)
-#                     torch.save(args, os.path.join(output_dir, 'training_args.bin'))
-#                     tokenizer.save_pretrained(output_dir)
-#                     break
-#                 except:
-#                     save_num += 1
-#             logger.info("Saving model checkpoint {0} to {1}".format(epoch, output_dir))
-
-#         epoch_log = {'epoch': epoch, 'eval_score': eval_score, 'best_score':best_score}
-#         log_json.append(epoch_log)
-#         if args.local_rank in [-1, 0]:
-#             with open(args.output_dir + '/eval_logs.json', 'w') as fp:
-#                 json.dump(log_json, fp)
-
-#         logger.info("PROGRESS: {}%".format(round(100*(epoch + 1) / args.num_train_epochs, 4)))
-#         logger.info("EVALERR: {}%".format(100*best_score))
-
-#         t_end = time.time()
-#         logger.info('Epoch: %d, Train Time: %.3f' % (epoch, t_end - t_start))
-
-#         #if args.max_steps > 0 and global_step > args.max_steps:
-#         #    train_iterator.close()
-#         #    break
-
-#     if args.local_rank in [-1, 0]: # Save the final model checkpoint
-#         with open(args.output_dir + '/eval_logs.json', 'w') as fp:
-#             json.dump(log_json, fp)
-
-#         output_dir = os.path.join(args.output_dir, 'best-{}'.format(best_model['epoch']))
-#         if not os.path.exists(output_dir): os.makedirs(output_dir)
-#         model_to_save = best_model['model'].module if hasattr(model, 'module') else best_model['model']  # Take care of distributed/parallel training
-
-#         save_num = 0
-#         while (save_num < 10):
-#             try:
-#                 model_to_save.save_pretrained(output_dir)
-#                 torch.save(args, os.path.join(output_dir, 'training_args.bin'))
-#                 tokenizer.save_pretrained(output_dir)
-#                 break
-#             except:
-#                 save_num += 1
-#         logger.info("Saving the best model checkpoint epoch {} to {}".format(best_model['epoch'], output_dir))
-
-#     return global_step, tr_loss / global_step
-
 def train(args, train_dataset, eval_dataset, model, tokenizer):
     """ Train the model """
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
@@ -827,7 +360,7 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
 
     # Distributed training (should be after apex fp16 initialization)
     if args.local_rank != -1:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=False)
 
     # Train!
     logger.info("***** Running training *****")
@@ -1101,6 +634,9 @@ def target_tensor(len, labels, scores):
 
     return target
 
+# def find_wandb_run_id(ckpt_path):
+
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -1200,6 +736,10 @@ def main():
     parser.add_argument("--load_fast", action='store_true', help="Load Tensor Fast")
     parser.add_argument('-j', '--num_workers', default=0, type=int, metavar='N', help='number of data loading workers (default: 4)')
 
+    ## resuming a run
+    parser.add_argument("--resume_ckpt", default=None, type=str, required=False,
+                        help="resume from this folder, off the form .../.../../checkpoint-3293892. The output directory where the model checkpoints will be written if resuming form a ckpt.")
+
     #args = '--data_dir ../vqa/ban-vqa/data/qal_pairs --model_type bert --model_name_or_path bert-base-uncased --task_name vqa_text ' \
     #       '--do_train --do_eval --do_lower_case --max_seq_length 40 --per_gpu_eval_batch_size 16 --per_gpu_train_batch_size 16 --learning_rate 2e-5 ' \
     #       '--num_train_epochs 20.0 --output_dir ./results/vqa_text --label_file ../vqa/ban-vqa/data/cache/trainval_ans2label.pkl ' \
@@ -1216,8 +756,14 @@ def main():
 
     if args.local_rank == 0:  # only on main process
         # Initialize wandb run
-        wandb.init(entity="harman", project = 'SGVL', config=args)
+        run_id = wandb.util.generate_id()
+        if args.resume_ckpt is not None:
+            run_id = find_wandb_run_id(args.resume_ckpt)
+            wandb.init(id=run_id, resume="must", entity="harman", project = 'SGVL', config=args)
+        else:
+            wandb.init(id=run_id, entity="harman", project = 'SGVL', config=args)
         wandb.run.name = wandb.run.name.split('-')[-1] ## a number is sufficient for the run name
+        wandb.config.run_name = wandb.run.name
         args.output_dir = os.path.join(args.output_dir, wandb.run.name)
 
     if args.philly:  # use philly
@@ -1242,7 +788,11 @@ def main():
     else:  # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
         torch.cuda.set_device(args.local_rank)
         device = torch.device("cuda", args.local_rank)
-        torch.distributed.init_process_group(backend='nccl')
+        if "WORLD_SIZE" in os.environ:
+            args.world_size = int(os.environ["WORLD_SIZE"])
+        torch.distributed.init_process_group(backend='nccl', init_method='env://',
+                                world_size=args.world_size, rank=args.local_rank
+        )
         args.n_gpu = 1
     args.device = device
 
@@ -1265,6 +815,7 @@ def main():
     label_list = processor.get_labels(args.label_file) # ans2label.pkl file
     num_labels = len(label_list)
     logger.info('Task Name: {}, #Labels: {}'.format(args.task_name, num_labels))
+
 
     # Load pretrained model and tokenizer
     if args.local_rank not in [-1, 0]:

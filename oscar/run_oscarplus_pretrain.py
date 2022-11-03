@@ -20,10 +20,10 @@ import transformers
 from oscar.modeling.modeling_bert import BertImgForPreTraining
 # from transformers.pytorch_transformers import (WEIGHTS_NAME, BertConfig,
 #                                   BertTokenizer)
-# from transformers import (WEIGHTS_NAME, BertConfig,
-#                                   BertTokenizer)
-from transformers import WEIGHTS_NAME
-from transformers import AutoConfig, AutoTokenizer
+from transformers import (WEIGHTS_NAME, BertConfig,
+                                  BertTokenizer)
+# from transformers import WEIGHTS_NAME
+# from transformers import AutoConfig, AutoTokenizer
 
 from oscar.datasets.build import make_data_loader
 
@@ -43,9 +43,9 @@ logger = logging.getLogger(__name__)
 # ALL_MODELS = sum((tuple(conf.pretrained_config_archive_map) for conf in (BertConfig,)), ())
 
 
-# MODEL_CLASSES = {
-#     'bert': (BertConfig, BertImgForPreTraining, BertTokenizer),
-# }
+MODEL_CLASSES = {
+    'bert': (BertConfig, BertImgForPreTraining, BertTokenizer),
+}
 
 """ ****** Pretraining ****** """
 
@@ -187,6 +187,12 @@ def main():
                         help="Period for saving checkpoint")
     parser.add_argument('--log_period', type=int, default=100,
                         help="Period for saving logging info")
+
+    # resuming
+    parser.add_argument("--resume_ckpt", default=None, type=str, required=False,
+                        help="resume from this folder, off the form .../.../../checkpoint-3293892. The output directory where the model checkpoints will be written if resuming form a ckpt.")
+
+
     args = parser.parse_args()
 
     import wandb
@@ -199,9 +205,9 @@ def main():
 
 
 
-    MODEL_CLASSES = {
-        'bert': (AutoConfig.from_pretrained(args.bert_model), BertImgForPreTraining, AutoTokenizer.from_pretrained(args.bert_model)),
-    }
+    # MODEL_CLASSES = {
+    #     'bert': (AutoConfig.from_pretrained(args.bert_model), BertImgForPreTraining, AutoTokenizer.from_pretrained(args.bert_model)),
+    # }
 
 
     if args.gpu_ids != '-1':
@@ -288,8 +294,8 @@ def main():
 
     last_checkpoint_dir = None
     arguments = {"iteration": 0}
-    if os.path.exists(args.output_dir):
-        save_file = os.path.join(args.output_dir, "last_checkpoint")
+    if args.resume_ckpt:
+        save_file = os.path.join(args.resume_ckpt, "last_checkpoint") # args.resume_ckp --> .../../../88
         try:
             with open(save_file, "r") as f:
                 last_saved = f.read()
@@ -300,9 +306,26 @@ def main():
             last_saved = ""
         if last_saved:
             folder_name = os.path.splitext(last_saved.split('/')[0])[0] # in the form of checkpoint-00001 or checkpoint-00001/pytorch_model.bin
-            last_checkpoint_dir = os.path.join(args.output_dir, folder_name)
+            last_checkpoint_dir = os.path.join(args.resume_ckpt, folder_name)
             arguments["iteration"] = int(folder_name.split('-')[-1])
             assert os.path.isfile(os.path.join(last_checkpoint_dir, WEIGHTS_NAME)), "Last_checkpoint detected, but file not found!"
+
+
+    # if os.path.exists(args.output_dir):
+    #     save_file = os.path.join(args.output_dir, "last_checkpoint")
+    #     try:
+    #         with open(save_file, "r") as f:
+    #             last_saved = f.read()
+    #             last_saved = last_saved.strip()
+    #     except IOError:
+    #         # if file doesn't exist, maybe because it has just been
+    #         # deleted by a separate process
+    #         last_saved = ""
+    #     if last_saved:
+    #         folder_name = os.path.splitext(last_saved.split('/')[0])[0] # in the form of checkpoint-00001 or checkpoint-00001/pytorch_model.bin
+    #         last_checkpoint_dir = os.path.join(args.output_dir, folder_name)
+    #         arguments["iteration"] = int(folder_name.split('-')[-1])
+    #         assert os.path.isfile(os.path.join(last_checkpoint_dir, WEIGHTS_NAME)), "Last_checkpoint detected, but file not found!"
 
     # model first
     if get_rank() != 0:
