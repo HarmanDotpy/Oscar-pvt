@@ -31,6 +31,29 @@ source ~/miniconda/etc/profile.d/conda.sh
 conda activate meter_efa_dinoclone
 
 
+
+### runing on GQA without torch.distributed
+
+python oscar/run_gqa_tsv.py --img_feature_dim 2054 --max_img_seq_length 50 --data_label_type all --train_data_type all --eval_data_type bal --img_feature_type faster_r-cnn --data_dir /fsx/harman/data/VinVL_img_features/gqa --model_type bert --model_name_or_path /fsx/harman/Oscar/pretrained_models/vqa/base/checkpoint-2000000 --task_name gqa --do_lower_case --max_seq_length 165 --per_gpu_eval_batch_size 256 --per_gpu_train_batch_size 48 --learning_rate 5e-05 --num_train_epochs 5 --output_dir /checkpoints/harman/oscar/gqa --label_file /fsx/harman/data/VinVL_img_features/gqa/trainval_testdev_all_ans2label.pkl --save_epoch 1 --seed 88 --evaluate_during_training --logging_steps 4000 --drop_out 0.3 --weight_decay 0.05 --warmup_steps 0 --loss_type xe --img_feat_format tsv --classifier linear --cls_hidden_scale 2 --txt_data_dir /fsx/harman/data/VinVL_img_features/gqa --do_train --evaluate_during_training --num_workers 50 --logging_steps 200
+
+
+## finetune on gqa oscar + rel predict (our pretrained model trianed on coco +vg + vqa dataset),  -- 87 model
+# python oscar/run_gqa_tsv.py --img_feature_dim 2054 --max_img_seq_length 50 --data_label_type all --train_data_type all --eval_data_type bal --img_feature_type faster_r-cnn --data_dir /fsx/harman/data/VinVL_img_features/gqa --model_type bert --model_name_or_path /checkpoints/harman/oscar/87/checkpoint-0240000 --task_name gqa --do_lower_case --max_seq_length 165 --per_gpu_eval_batch_size 256 --per_gpu_train_batch_size 48 --learning_rate 5e-05 --num_train_epochs 5 --output_dir /checkpoints/harman/oscar/gqa --label_file /fsx/harman/data/VinVL_img_features/gqa/trainval_testdev_all_ans2label.pkl --save_epoch 1 --seed 88 --evaluate_during_training --drop_out 0.3 --weight_decay 0.05 --warmup_steps 0 --loss_type xe --img_feat_format tsv --classifier linear --cls_hidden_scale 2 --txt_data_dir /fsx/harman/data/VinVL_img_features/gqa --do_train --evaluate_during_training --num_workers 50 --logging_steps 200
+
+## finetune on gaa oscar + rel predict (our pretrained model trianed on coco +vg + vqa dataset),  -- 88 model
+# python oscar/run_gqa_tsv.py --img_feature_dim 2054 --max_img_seq_length 50 --data_label_type all --train_data_type all --eval_data_type bal --img_feature_type faster_r-cnn --data_dir /fsx/harman/data/VinVL_img_features/gqa --model_type bert --model_name_or_path /checkpoints/harman/oscar/88/checkpoint-0240000 --task_name gqa --do_lower_case --max_seq_length 165 --per_gpu_eval_batch_size 256 --per_gpu_train_batch_size 48 --learning_rate 5e-05 --num_train_epochs 5 --output_dir /checkpoints/harman/oscar/gqa --label_file /fsx/harman/data/VinVL_img_features/gqa/trainval_testdev_all_ans2label.pkl --save_epoch 1 --seed 88 --evaluate_during_training --drop_out 0.3 --weight_decay 0.05 --warmup_steps 0 --loss_type xe --img_feat_format tsv --classifier linear --cls_hidden_scale 2 --txt_data_dir /fsx/harman/data/VinVL_img_features/gqa --do_train --evaluate_during_training --num_workers 50 --logging_steps 200
+
+
+
+
+
+
+
+
+
+
+
+
 ########Resuming WITH USING OBJ TAGS (87 and 88)
 # Without SG
 # python -m torch.distributed.launch --nproc_per_node=8 oscar/run_oscarplus_pretrain.py \
@@ -131,7 +154,7 @@ conda activate meter_efa_dinoclone
 # CUDA_LAUNCH_BLOCKING=1 python -m torch.distributed.launch --nproc_per_node=8 oscar/run_gqa_tsv.py --img_feature_dim 2054 --max_img_seq_length 50 --data_label_type all --train_data_type all --eval_data_type bal --img_feature_type faster_r-cnn --data_dir /fsx/harman/data/VinVL_img_features/gqa --model_type bert --model_name_or_path /checkpoints/harman/oscar/87/checkpoint-0240000 --task_name gqa --do_lower_case --max_seq_length 165 --per_gpu_eval_batch_size 256 --per_gpu_train_batch_size 48 --learning_rate 5e-05 --num_train_epochs 5 --output_dir /checkpoints/harman/oscar/gqa --label_file /fsx/harman/data/VinVL_img_features/gqa/trainval_testdev_all_ans2label.pkl --save_epoch 1 --seed 88 --evaluate_during_training --drop_out 0.3 --weight_decay 0.05 --warmup_steps 0 --loss_type xe --img_feat_format tsv --classifier linear --cls_hidden_scale 2 --txt_data_dir /fsx/harman/data/VinVL_img_features/gqa --do_train --evaluate_during_training --num_workers 50 --logging_steps 200
 
 ## finetune on gaa oscar + rel predict (our pretrained model trianed on coco +vg + vqa dataset),  -- 88 model
-CUDA_LAUNCH_BLOCKING=1 python -m torch.distributed.launch --nproc_per_node=8 oscar/run_gqa_tsv.py --img_feature_dim 2054 --max_img_seq_length 50 --data_label_type all --train_data_type all --eval_data_type bal --img_feature_type faster_r-cnn --data_dir /fsx/harman/data/VinVL_img_features/gqa --model_type bert --model_name_or_path /checkpoints/harman/oscar/88/checkpoint-0240000 --task_name gqa --do_lower_case --max_seq_length 165 --per_gpu_eval_batch_size 256 --per_gpu_train_batch_size 48 --learning_rate 5e-05 --num_train_epochs 5 --output_dir /checkpoints/harman/oscar/gqa --label_file /fsx/harman/data/VinVL_img_features/gqa/trainval_testdev_all_ans2label.pkl --save_epoch 1 --seed 88 --evaluate_during_training --drop_out 0.3 --weight_decay 0.05 --warmup_steps 0 --loss_type xe --img_feat_format tsv --classifier linear --cls_hidden_scale 2 --txt_data_dir /fsx/harman/data/VinVL_img_features/gqa --do_train --evaluate_during_training --num_workers 50 --logging_steps 200
+# CUDA_LAUNCH_BLOCKING=1 python -m torch.distributed.launch --nproc_per_node=8 oscar/run_gqa_tsv.py --img_feature_dim 2054 --max_img_seq_length 50 --data_label_type all --train_data_type all --eval_data_type bal --img_feature_type faster_r-cnn --data_dir /fsx/harman/data/VinVL_img_features/gqa --model_type bert --model_name_or_path /checkpoints/harman/oscar/88/checkpoint-0240000 --task_name gqa --do_lower_case --max_seq_length 165 --per_gpu_eval_batch_size 256 --per_gpu_train_batch_size 48 --learning_rate 5e-05 --num_train_epochs 5 --output_dir /checkpoints/harman/oscar/gqa --label_file /fsx/harman/data/VinVL_img_features/gqa/trainval_testdev_all_ans2label.pkl --save_epoch 1 --seed 88 --evaluate_during_training --drop_out 0.3 --weight_decay 0.05 --warmup_steps 0 --loss_type xe --img_feat_format tsv --classifier linear --cls_hidden_scale 2 --txt_data_dir /fsx/harman/data/VinVL_img_features/gqa --do_train --evaluate_during_training --num_workers 50 --logging_steps 200
 
 
 

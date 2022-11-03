@@ -362,6 +362,14 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
     if args.local_rank != -1:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=False)
 
+    if args.distributed:
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[args.local_rank], output_device=args.local_rank,
+            find_unused_parameters=False)
+
+    elif args.n_gpu > 1:
+        model = torch.nn.DataParallel(model)
+
     # Train!
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_dataset))
@@ -766,20 +774,20 @@ def main():
         wandb.config.run_name = wandb.run.name
         args.output_dir = os.path.join(args.output_dir, wandb.run.name)
 
-    if args.philly:  # use philly
-        logger.info('Info: Use Philly, all the output folders are reset.')
-        args.output_dir = os.path.join(os.getenv('PT_OUTPUT_DIR'), args.output_dir)
-        logger.info('OUTPUT_DIR:', args.output_dir)
+    # if args.philly:  # use philly
+    #     logger.info('Info: Use Philly, all the output folders are reset.')
+    #     args.output_dir = os.path.join(os.getenv('PT_OUTPUT_DIR'), args.output_dir)
+    #     logger.info('OUTPUT_DIR:', args.output_dir)
 
     if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train: logger.info("Output Directory Exists.")
 
-    # Setup distant debugging if needed
-    if args.server_ip and args.server_port:
-        # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
-        import ptvsd
-        logger.info("Waiting for debugger attach")
-        ptvsd.enable_attach(address=(args.server_ip, args.server_port), redirect_output=True)
-        ptvsd.wait_for_attach()
+    # # Setup distant debugging if needed
+    # if args.server_ip and args.server_port:
+    #     # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
+    #     import ptvsd
+    #     logger.info("Waiting for debugger attach")
+    #     ptvsd.enable_attach(address=(args.server_ip, args.server_port), redirect_output=True)
+    #     ptvsd.wait_for_attach()
 
     # Setup CUDA, GPU & distributed training
     if args.local_rank == -1 or args.no_cuda:
