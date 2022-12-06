@@ -239,7 +239,7 @@ class GQADataset(Dataset):
         return example
 
     def __len__(self):
-        return len(self.examples)
+        return len(self.examples)//self.args.num_example_div
 
     # tsv feature loading
     def load_img_tsv_features(self):
@@ -447,9 +447,8 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
                         metrics_to_log = {
                             'batch_metrics': {"EVALERR": 100 * best_score}
                         }
-                        ## remvoed loggin due to nccl error dur to .pem file
-                        # if args.local_rank == 0:  # only on main process
-                        #     wandb.log(metrics_to_log)
+                        if args.local_rank == 0:  # only on main process
+                            wandb.log(metrics_to_log)
                         logger.info("EVALERR: {}%".format(100 * best_score))
                     logging_loss = tr_loss
 
@@ -567,8 +566,8 @@ def evaluate(args, model, eval_dataset=None, prefix=""):
             'Eval Accuracy': 100*acc,
             'Eval Loss': eval_loss
         }
-        # if args.local_rank == 0:  # only on main process
-        #     wandb.log(metrics_to_log)
+        if args.local_rank == 0:  # only on main process
+            wandb.log(metrics_to_log)
 
         logger.info("Eval Results:")
         logger.info("Eval Accuracy: %.3f" % (100*acc))
@@ -748,6 +747,7 @@ def main():
     ## resuming a run
     parser.add_argument("--resume_ckpt", default=None, type=str, required=False,
                         help="resume from this folder, off the form .../.../../checkpoint-3293892. The output directory where the model checkpoints will be written if resuming form a ckpt.")
+    parser.add_argument("--num_example_div", type=int, default=1, help="divide the total number of examples by this much, for low resource finetuning experiments")
 
     #args = '--data_dir ../vqa/ban-vqa/data/qal_pairs --model_type bert --model_name_or_path bert-base-uncased --task_name vqa_text ' \
     #       '--do_train --do_eval --do_lower_case --max_seq_length 40 --per_gpu_eval_batch_size 16 --per_gpu_train_batch_size 16 --learning_rate 2e-5 ' \

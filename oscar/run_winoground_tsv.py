@@ -26,8 +26,7 @@ from transformers import get_linear_schedule_with_warmup
 
 from oscar.utils.misc import set_seed
 from oscar.utils.tsv_file import TSVFile
-from oscar.utils.task_utils import (_truncate_seq_pair, convert_examples_to_features_vqa,
-                        output_modes, processors)
+from oscar.utils.task_utils import (_truncate_seq_pair, output_modes, processors)
 
 import wandb
 
@@ -44,46 +43,34 @@ MODEL_CLASSES = {
 log_json = []
 debug_size = 500
 
+#TODO:
+# implement winoground processor
+# make input instance as [[1,2,3,4], []] for winoground
 
 def _load_dataset(args, name):
     processor = processors[args.task_name]()
-    labels = processor.get_labels(args.label_file) # ans2label.pkl files
+    example_ids = processor.get_labels(args.label_file) # ans2label.pkl files 
 
-    if name == 'train':
-        if args.train_data_type == 'bal':
-            examples = processor.get_train_examples(args.txt_data_dir, 'gqa_bal_qla_train.json') #[0: debug_size]
-        else:
-            examples = processor.get_train_examples(args.txt_data_dir, 'gqa_all_qla_train.json') #[0: debug_size]
-    elif name == 'val':
-        if args.eval_data_type == 'bal':
-            examples = processor.get_dev_examples(args.txt_data_dir, 'gqa_bal_qla_val.json') #[0: debug_size]
-        else:
-            examples = processor.get_dev_examples(args.txt_data_dir, 'gqa_all_qla_val.json') #[0: debug_size]
-    elif name == 'train+val': # depreciated
-        if args.data_label_type == 'mask':
-            examples = processor.get_train_examples(args.txt_data_dir, 'train+val2014_qla_mrcnn.json')
-        else:
-            examples = processor.get_train_examples(args.txt_data_dir, 'train+val2014_qla.json')
-    elif name == 'test': # test-submission
+    # it is assumed that #[00, 01, 10, 11] can be kept as a convention
+ 
+    # suboptimal as of now since we are loading the features also together
+    if name == 'test': # test-submission
         if args.data_label_type == 'bal':
-            examples = processor.get_test_examples(args.txt_data_dir, 'gqa_all_qla_submission.json')
+            examples = processor.get_test_examples(args.data_dir, 'predictions.tsv')
         else:
-            examples = processor.get_test_examples(args.txt_data_dir, 'gqa_all_qla_submission.json')
-    elif name == 'test-dev': # test-dev set
-        if args.data_label_type == 'bal':
-            examples = processor.get_dev_examples(args.txt_data_dir, 'gqa_bal_qla_testdev.json')
-        else:
-            examples = processor.get_dev_examples(args.txt_data_dir, 'gqa_all_qla_testdev.json')
+            examples = processor.get_test_examples(args.data_dir, 'predictions.tsv')
+    else:
+        raise NotImplementedError()
 
-    return examples, labels
+    return examples, example_ids
 
 
-class GQADataset(Dataset):    
-    """ GQA Dataset """
+class WinogroundDataset(Dataset):    
+    """ Winoground Dataset """
 
     def __init__(self, args, name, tokenizer):
-        super(GQADataset, self).__init__()
-        assert name in ['train', 'val', 'test-dev', 'test', 'train+val']
+        super(WinogroundDataset, self).__init__()
+        assert name in ['test']
 
         self.args = args
         self.name = name
@@ -362,14 +349,6 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
     if args.local_rank != -1:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=False)
 
-    # if args.distributed:
-    #     model = torch.nn.parallel.DistributedDataParallel(
-    #         model, device_ids=[args.local_rank], output_device=args.local_rank,
-    #         find_unused_parameters=False)
-
-    # elif args.n_gpu > 1:
-    #     model = torch.nn.DataParallel(model)
-
     # Train!
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_dataset))
@@ -447,9 +426,8 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
                         metrics_to_log = {
                             'batch_metrics': {"EVALERR": 100 * best_score}
                         }
-                        ## remvoed loggin due to nccl error dur to .pem file
-                        # if args.local_rank == 0:  # only on main process
-                        #     wandb.log(metrics_to_log)
+                        if args.local_rank == 0:  # only on main process
+                            wandb.log(metrics_to_log)
                         logger.info("EVALERR: {}%".format(100 * best_score))
                     logging_loss = tr_loss
 
@@ -567,8 +545,8 @@ def evaluate(args, model, eval_dataset=None, prefix=""):
             'Eval Accuracy': 100*acc,
             'Eval Loss': eval_loss
         }
-        # if args.local_rank == 0:  # only on main process
-        #     wandb.log(metrics_to_log)
+        if args.local_rank == 0:  # only on main process
+            wandb.log(metrics_to_log)
 
         logger.info("Eval Results:")
         logger.info("Eval Accuracy: %.3f" % (100*acc))
@@ -653,8 +631,6 @@ def main():
     ## Required parameters
     parser.add_argument("--data_dir", default=None, type=str, required=True,
                         help="The input data dir. Should contain the .tsv files (or other data files) for the task.")
-    parser.add_argument("--txt_data_dir", default=None, type=str, required=True,
-                        help="The input text data dir. Should contain the .json files (or other data files) for the task.")
 
     parser.add_argument("--model_type", default=None, type=str, required=True,
                         help="Model type selected in the list: " + ", ".join(MODEL_CLASSES.keys()))

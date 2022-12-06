@@ -464,7 +464,9 @@ def main():
     clock_started = False
     # Every args.ckpt_period, report train_score and save model
     # tr_loss = 0
-    loss_dict = {'tr_loss':0, 'loss_oscar':0, 'loss_rel_classif':0}
+    loss_dict = {'tr_loss':0, 'loss_oscar':0, 'loss_feat_rel_classif':0, \
+                    'loss_tag_rel_classif':0, 'loss_tag_feat_rel_classif':0, \
+                    'loss_feat_tag_rel_classif':0,}
     nb_tr_examples, nb_tr_steps = 0, 0
     for step, (batch, batch_extra) in enumerate(zip(train_dataloader, train_dataloader_extra), start_iter):
         if not clock_started:
@@ -489,83 +491,129 @@ def main():
             lm_label_ids = torch.stack(targets_transposed[3]).to(args.device, non_blocking=True)
             is_next = torch.stack(targets_transposed[4]).to(args.device, non_blocking=True)
             is_img_match = torch.stack(targets_transposed[5]).to(args.device, non_blocking=True)
+            tokens_b_start_pos = targets_transposed[6]
+            tokens_b_spans = targets_transposed[7]
+            tokens_b_firsttokens = torch.stack(targets_transposed[8]).to(args.device, non_blocking=True)
+            tokens_b_lasttokens = torch.stack(targets_transposed[9]).to(args.device, non_blocking=True)
+            is_qa = torch.stack(targets_transposed[10]).to(args.device, non_blocking=True)
 
 
             # # sg relates
             if args.use_sg:
-
                 sg_transposed = list(zip(*sg))
                 sg_rel_idx_pairs = torch.stack(sg_transposed[0]).to(args.device, non_blocking=True)
                 mask_sg_rel_idx_pairs = torch.stack(sg_transposed[1]).to(args.device, non_blocking=True)
                 sg_rel_labels = torch.stack(sg_transposed[2]).to(args.device, non_blocking=True)
                 mask_sg_rel_labels = torch.stack(sg_transposed[3]).to(args.device, non_blocking=True)
                 sg_num_rels = sg_transposed[4]
+                obj_tag_sg_rel_idx_pairs = torch.stack(sg_transposed[5]).to(args.device, non_blocking=True) #for tag level relations
+                obj_tags_sg_rel_labels = torch.stack(sg_transposed[6]).to(args.device, non_blocking=True)
                 # import pdb; pdb.set_trace()
 
-                sg_rel_idx_pairs = sg_rel_idx_pairs.to(args.device, non_blocking=True)
-                mask_sg_rel_idx_pairs = mask_sg_rel_idx_pairs.to(args.device, non_blocking=True)
-                sg_rel_labels = sg_rel_labels.to(args.device, non_blocking=True)
-                mask_sg_rel_labels = mask_sg_rel_labels.to(args.device, non_blocking=True)
+                # sg_rel_idx_pairs = sg_rel_idx_pairs.to(args.device, non_blocking=True)
+                # mask_sg_rel_idx_pairs = mask_sg_rel_idx_pairs.to(args.device, non_blocking=True)
+                # sg_rel_labels = sg_rel_labels.to(args.device, non_blocking=True)
+                # mask_sg_rel_labels = mask_sg_rel_labels.to(args.device, non_blocking=True)
+                # obj_tag_sg_rel_idx_pairs = obj_tag_sg_rel_idx_pairs.to(args.device, non_blocking=True)
 
             else:
-                sg_rel_idx_pairs, mask_sg_rel_idx_pairs, sg_rel_labels, mask_sg_rel_labels, sg_num_rels = None, None, None, None, None
+                sg_rel_idx_pairs, mask_sg_rel_idx_pairs, sg_rel_labels, mask_sg_rel_labels, sg_num_rels, obj_tag_sg_rel_idx_pairs, obj_tags_sg_rel_labels = None, None, None, None, None, None, None
             
-            return images, sg_rel_idx_pairs, mask_sg_rel_idx_pairs, sg_rel_labels, mask_sg_rel_labels, sg_num_rels, input_ids, input_mask, segment_ids, lm_label_ids, is_next
+            return images, sg_rel_idx_pairs, mask_sg_rel_idx_pairs, sg_rel_labels,\
+                    mask_sg_rel_labels, sg_num_rels, input_ids, input_mask, \
+                    segment_ids, lm_label_ids, is_next, tokens_b_start_pos, tokens_b_spans, tokens_b_firsttokens, tokens_b_lasttokens, \
+                    obj_tag_sg_rel_idx_pairs, obj_tags_sg_rel_labels, is_qa
 
 
-        images1, sg_rel_idx_pairs1, mask_sg_rel_idx_pairs1, sg_rel_labels1, mask_sg_rel_labels1, sg_num_rels1, input_ids1, input_mask1, segment_ids1, lm_label_ids1, is_next1 \
-            = data_process(batch)
+        images1, sg_rel_idx_pairs1, mask_sg_rel_idx_pairs1, sg_rel_labels1, mask_sg_rel_labels1, \
+            sg_num_rels1, input_ids1, input_mask1, segment_ids1, lm_label_ids1, is_next1, \
+            tokens_b_start_pos, tokens_b_spans, tokens_b_firsttokens, tokens_b_lasttokens, \
+            obj_tag_sg_rel_idx_pairs, obj_tags_sg_rel_labels, is_qa \
+                = data_process(batch)
 
         if batch_extra is not None:
-            images2, sg_rel_idx_pairs2, mask_sg_rel_idx_pairs2, sg_rel_labels2, mask_sg_rel_labels2, sg_num_rels2, input_ids2, input_mask2, segment_ids2, lm_label_ids2, is_next2 \
+            images2, sg_rel_idx_pairs2, mask_sg_rel_idx_pairs2, sg_rel_labels2, mask_sg_rel_labels2, 
+            sg_num_rels2, input_ids2, input_mask2, segment_ids2, lm_label_ids2, is_next2, \
+            tokens_b_start_pos2, tokens_b_spans2, tokens_b_firsttokens2, tokens_b_lasttokens2, \
+            obj_tag_sg_rel_idx_pairs2, obj_tags_sg_rel_labels2, is_qa2 \
                 = data_process(batch_extra)
 
         data_time = time.time() - end
 
-        def forward_backward(images, sg_rel_idx_pairs, mask_sg_rel_idx_pairs, sg_rel_labels, mask_sg_rel_labels, sg_num_rels, input_ids, input_mask, segment_ids,
-                             lm_label_ids, is_next, args, loss_weight=1.0, loss_weight_rel_classif=1.0):
+        def forward_backward(images, sg_rel_idx_pairs, mask_sg_rel_idx_pairs, sg_rel_labels, \
+                                mask_sg_rel_labels, sg_num_rels, input_ids, input_mask, segment_ids,
+                                lm_label_ids, is_next, args, loss_weight=1.0, loss_weight_rel_classif=1.0,
+                                tokens_b_start_pos = None, tokens_b_spans = None, tokens_b_firsttokens = None, tokens_b_lasttokens = None,
+                                obj_tag_sg_rel_idx_pairs=None, obj_tags_sg_rel_labels=None, is_qa=False):
             # feature as input
             # image_features = torch.stack(images).to(args.device, non_blocking=True)
 
             outputs = model(input_ids, segment_ids, input_mask,
-                            lm_label_ids, is_next, img_feats=images, 
-                            sg_rel_idx_pairs = sg_rel_idx_pairs,
-                            sg_rel_labels = sg_rel_labels,
+                            lm_label_ids, is_next, img_feats=images,
+                            sg_rel_idx_pairs = sg_rel_idx_pairs, sg_rel_labels = sg_rel_labels,
+                            tokens_b_start_pos = tokens_b_start_pos, tokens_b_spans = tokens_b_spans, tokens_b_firsttokens = tokens_b_firsttokens, tokens_b_lasttokens = tokens_b_lasttokens,
+                            obj_tag_sg_rel_idx_pairs = obj_tag_sg_rel_idx_pairs, obj_tags_sg_rel_labels = obj_tags_sg_rel_labels, is_qa = is_qa
                             )
 
             loss_oscar = loss_weight * outputs[0]
-            loss_rel_classif = torch.tensor(0.)
+            loss_feat_rel_classif, loss_tag_rel_classif, loss_tag_feat_rel_classif, loss_feat_tag_rel_classif = torch.tensor(0.), torch.tensor(0.), torch.tensor(0.), torch.tensor(0.)
             if args.use_sg:
-                loss_rel_classif = loss_weight_rel_classif * outputs[5]
+                loss_feat_rel_classif = loss_weight_rel_classif * outputs[5]
+                loss_tag_rel_classif = loss_weight_rel_classif * outputs[6]
+                loss_tag_feat_rel_classif = loss_weight_rel_classif * outputs[7]
+                loss_feat_tag_rel_classif = loss_weight_rel_classif * outputs[8]
 
+                #TODO implement relation classificatio between other tagfeat, tag etc
             if args.n_gpu > 1:
                 loss_oscar = loss_oscar.mean()  # mean() to average on multi-gpu.
                 if args.use_sg:
-                    loss_rel_classif = loss_rel_classif.mean()
+                    loss_feat_rel_classif = loss_feat_rel_classif.mean()
+                    loss_tag_rel_classif = loss_tag_rel_classif.mean()
+                    loss_tag_feat_rel_classif = loss_tag_feat_rel_classif.mean()
+                    loss_feat_tag_rel_classif = loss_feat_tag_rel_classif.mean()
 
             if args.gradient_accumulation_steps > 1:
                 loss_oscar = loss_oscar / args.gradient_accumulation_steps
                 if args.use_sg:
-                    loss_rel_classif = loss_rel_classif / args.gradient_accumulation_steps
-            
-            total_loss = loss_oscar + loss_rel_classif
+                    loss_feat_rel_classif = loss_feat_rel_classif / args.gradient_accumulation_steps
+                    loss_tag_rel_classif = loss_tag_rel_classif / args.gradient_accumulation_steps
+                    loss_tag_feat_rel_classif = loss_tag_feat_rel_classif / args.gradient_accumulation_steps
+                    loss_feat_tag_rel_classif = loss_feat_tag_rel_classif / args.gradient_accumulation_steps
+
+            total_loss = (loss_oscar + loss_feat_rel_classif + loss_tag_rel_classif + loss_tag_feat_rel_classif + loss_feat_tag_rel_classif)
+            # if args.use_sg:
+            #     total_loss += (loss_feat_rel_classif + loss_tag_rel_classif + loss_tag_feat_rel_classif + loss_feat_tag_rel_classif)
             total_loss.backward()
 
-            return {'tr_loss':total_loss.item(), 'loss_oscar': loss_oscar.item(), 'loss_rel_classif': loss_rel_classif.item()}, input_ids.size(0)
+            return {'tr_loss':total_loss.item(), 'loss_oscar': loss_oscar.item(), 'loss_feat_rel_classif': loss_feat_rel_classif.item(), \
+                    'loss_tag_rel_classif': loss_tag_rel_classif.item(), 'loss_tag_feat_rel_classif': loss_tag_feat_rel_classif.item(), \
+                    'loss_feat_tag_rel_classif': loss_feat_tag_rel_classif.item()}, input_ids.size(0)
 
         start1 = time.time()
         loss_dict1, nb_tr_example1 = forward_backward(
-            images1, sg_rel_idx_pairs1, mask_sg_rel_idx_pairs1, sg_rel_labels1, mask_sg_rel_labels1, sg_num_rels1,
+            images1, sg_rel_idx_pairs1, mask_sg_rel_idx_pairs1, 
+            sg_rel_labels1, mask_sg_rel_labels1, sg_num_rels1,
             input_ids1, input_mask1,
             segment_ids1, lm_label_ids1, is_next1,
-            args, loss_weight=1.0-args.extra_loss_weight, loss_weight_rel_classif = args.loss_weight_rel_classif
+            args, 
+            loss_weight=1.0-args.extra_loss_weight, 
+            loss_weight_rel_classif = args.loss_weight_rel_classif,
+            tokens_b_start_pos = tokens_b_start_pos,
+            tokens_b_spans = tokens_b_spans,
+            tokens_b_firsttokens=tokens_b_firsttokens, 
+            tokens_b_lasttokens=tokens_b_lasttokens,
+            obj_tag_sg_rel_idx_pairs = obj_tag_sg_rel_idx_pairs, 
+            obj_tags_sg_rel_labels = obj_tags_sg_rel_labels,
+            is_qa = is_qa,
         )
         for k in loss_dict.keys():
             loss_dict[k] += loss_dict1[k]
         nb_tr_examples += nb_tr_example1
         compute_time1 = time.time() - start1
 
-        loss_dict2, nb_tr_example2 = {'tr_loss':0, 'loss_oscar':0, 'loss_rel_classif':0}, 0
+        loss_dict2, nb_tr_example2 = {'tr_loss':0, 'loss_oscar':0, 'loss_feat_rel_classif':0, \
+                    'loss_tag_rel_classif':0, 'loss_tag_feat_rel_classif':0, \
+                    'loss_feat_tag_rel_classif':0,}, 0
         compute_time2 = 0.0
         if batch_extra is not None:
             start2 = time.time()
@@ -573,7 +621,14 @@ def main():
                 images2, sg_rel_idx_pairs2, mask_sg_rel_idx_pairs2, sg_rel_labels2, mask_sg_rel_labels2, sg_num_rels2,
                 input_ids2, input_mask2,
                 segment_ids2, lm_label_ids2, is_next2,
-                loss_weight=args.extra_loss_weight, loss_weight_rel_classif = args.loss_weight_rel_classif
+                loss_weight=args.extra_loss_weight, loss_weight_rel_classif = args.loss_weight_rel_classif,
+                tokens_b_start_pos = tokens_b_start_pos2,
+                tokens_b_spans = tokens_b_spans2,
+                tokens_b_firsttokens=tokens_b_firsttoken2, 
+                tokens_b_lasttokens=tokens_b_lasttokens2,
+                obj_tag_sg_rel_idx_pairs = obj_tag_sg_rel_idx_pairs2,
+                obj_tags_sg_rel_labels = obj_tags_sg_rel_labels2,
+                is_qa = is_qa2,
             )
             for k in loss_dict.keys():
                 loss_dict[k] += loss_dict2[k]
@@ -595,12 +650,15 @@ def main():
             # measure elapsed time
             batch_time = time.time() - end
             end = time.time()
-            metrics_to_log = {
-                'time_info': {'compute': batch_time, 'data': data_time,
-                              'compute1': compute_time1,
-                              'compute2': compute_time2},
-                'batch_metrics': {k: loss_dict1[k]+loss_dict2[k] for k in loss_dict.keys()}
-            }
+            try:
+                metrics_to_log = {
+                    'time_info': {'compute': batch_time, 'data': data_time,
+                                'compute1': compute_time1,
+                                'compute2': compute_time2},
+                    'batch_metrics': {k: loss_dict1[k]+loss_dict2[k] for k in loss_dict.keys()}
+                }
+            except:
+                import pdb; pdb.set_trace()
             params_to_log = {'params': {'bert_lr': optimizer.param_groups[0]["lr"]}}
 
             if args.local_rank == 0:  # only on main process
@@ -633,6 +691,8 @@ def main():
             log_json[step+1] = loss_dict['tr_loss']            
             train_metrics_total = torch.Tensor([loss_dict['tr_loss'], nb_tr_examples, nb_tr_steps]).to(args.device)
             torch.distributed.all_reduce(train_metrics_total)
+            if nb_tr_steps==0:
+                logger.info(f'nb_tr_steps: {nb_tr_steps}')
             # reset metrics
             
             loss_dict['tr_loss'] = 0
@@ -646,6 +706,9 @@ def main():
                     round(100 * (step + 1) / max_iter, 4)))
                 logger.info(
                     "EVALERR: {}%".format(train_score_gathered))
+
+                # if torch.isnan(train_score_gathered):
+                logger.info(f'train_metrics_total[0] = {train_metrics_total[0]}, train_metrics_total[2] = {train_metrics_total[2]}')
                 meters.update_metrics(
                     {
                         'epoch_metrics': {'ex_cnt': train_metrics_total[1],

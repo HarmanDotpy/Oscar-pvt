@@ -24,6 +24,7 @@ module load /fsx/harman/KEPTLMs/module_files/nccl/2.12.7-cuda.11.3
 module load /fsx/harman/KEPTLMs/module_files/nccl_efa/1.2.0-nccl.2.12.7-cuda.11.3
 
 source ~/miniconda/etc/profile.d/conda.sh
+# cond /data/home/harman/miniconda/envs/meter_efa_dinoclon_clone
 conda activate meter_efa_dinoclone
 
 

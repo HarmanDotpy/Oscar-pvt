@@ -415,6 +415,105 @@ class VCR_QAR_Processor(DataProcessor):
         return examples
 
 
+# class NLVRWinoProcessor(DataProcessor):
+#     """ Processor for the NLVR data set. """
+
+#     def get_train_examples(self, data_dir, use_label_seq=True, file_name='nlvr2_train.json'):
+#         """ See base class."""
+
+#         lines = json.load(open(os.path.join(data_dir, file_name)))
+#         return self._create_examples(lines, "train", use_label_seq)
+
+#         #return self._create_examples(self._read_tsv(os.path.join(data_dir, "train2014_qla.tsv")), "train")
+
+#     def get_dev_examples(self, data_dir, use_label_seq=True, file_name='nlvr2_dev.json'):
+#         """ See base class."""
+
+#         lines = json.load(open(os.path.join(data_dir, file_name)))
+#         return self._create_examples(lines, "dev", use_label_seq)
+
+#         #return self._create_examples(self._read_tsv(os.path.join(data_dir, "val2014_qla.tsv")), "dev")
+
+#     def get_test_examples(self, data_dir, use_label_seq=True, file_name='nlvr2_test1.json'):
+#         """ See base class."""
+
+#         lines = json.load(open(os.path.join(data_dir, file_name)))
+#         return self._create_examples(lines, "test", use_label_seq)
+
+#     def get_labels(self, label_file=None):
+#         """ See base class."""
+
+#         #ans2label = cPickle.load(open(label_file, 'rb'))
+#         #return list(ans2label.values())
+#         return [0, 1]
+
+#     def _create_examples(self, lines, set_type, use_label_seq=True):
+#         """ Creates examples for the training and dev sets. """
+
+#         examples = []
+#         for (i, line) in enumerate(lines):
+#             guid = "%s-%s" % (set_type, str(i))
+#             text_a = line['q']
+#             text_b = line['o'] if use_label_seq else None
+#             label = line['label'] #None if set_type.startswith('test') else line['label']
+#             score = 0
+#             img_key = line['img_id'] #[line['img_left'], line['img_left']]
+#             q_id = 0 #int(line['q_id']) if set_type.startswith('test') else 0
+#             examples.append(InputInstance(guid=guid, text_a=text_a, text_b=text_b, label=label, score=score, img_key=img_key, q_id=q_id))
+#         return examples
+
+
+
+# class WinogroundProcessor(DataProcessor):
+#     """ Processor for the Winoground data set. """
+
+#     def get_train_examples(self, data_dir, file_name=None):
+#         """ See base class."""
+#         raise NotImplementedError()
+
+#     def get_dev_examples(self, data_dir, file_name=None):
+#         """ See base class."""
+#         raise NotImplementedError()
+
+#     def get_test_examples(self, data_dir, file_name='examples.jsonl'):
+#         """ See base class."""
+
+#         lines = json.load(open(os.path.join(data_dir, file_name)))
+
+#         with open(os.path.join(data_dir, file_name)) as json_file:
+#             json_list = list(json_file)
+
+#         for json_str in json_list:
+#             line = json.loads(json_str)
+#             lines.append(line)
+
+#         import pdb; pdb.set_trace()
+
+#         return self._create_examples(lines, "test")
+
+#     def get_labels(self, label_file=None):
+#         """ See base class."""
+
+#         return [0, 1] # only correct or incorrect in the winoground dataset (need to create the retrieval think as well)
+
+#     def _create_examples(self, lines, set_type):
+#         """Creates examples for the training and dev sets."""
+
+#         examples = []
+#         for (i, line) in enumerate(lines):
+#             assert set_type=='test'
+
+#             guid = "%s-%s" % (set_type, str(i))
+#             text_a = line['q']
+#             text_b = line['o'] # or None
+#             label = None if set_type.startswith('test') else line['an']
+#             score = 0
+#             img_key = line['img_id']
+#             q_id = int(line['q_id']) if set_type.startswith('test') else 0
+#             examples.append(InputInstance(guid=guid, text_a=text_a, text_b=text_b, label=label, score=score, img_key=img_key, q_id=q_id))
+#         return examples
+
+
 def convert_examples_to_features_vqa(examples, img_feats, label_list, max_img_seq_length, max_seq_length,
                                  tokenizer, output_mode,
                                  cls_token_at_end=False, pad_on_left=False,
@@ -572,6 +671,7 @@ processors = {
     "vcr_q_a": VCR_Q_A_Processor,
     "vcr_qa_r": VCR_QA_R_Processor,
     "vcr_qar": VCR_QAR_Processor,
+    # "winoground": WinogroundProcessor,
 }
 
 output_modes = {
@@ -582,6 +682,7 @@ output_modes = {
     "vcr_q_a": "classification",
     "vcr_qa_r": "classification",
     "vcr_qar": "classification",
+    # "winoground": "classification"
 }
 
 GLUE_TASKS_NUM_LABELS = {
@@ -592,4 +693,5 @@ GLUE_TASKS_NUM_LABELS = {
     "vcr_q_a": 2,
     "vcr_qa_r": 2,
     "vcr_qar": 2,
+    # "winoground":2
 }

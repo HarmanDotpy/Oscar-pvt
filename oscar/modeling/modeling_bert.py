@@ -951,19 +951,84 @@ class BertPreTrainingHeads(nn.Module):
         if self.use_sg:
             self.obj_relation = nn.Linear(2*config.hidden_size, obj_relation_vocab_size)
 
-    def forward(self, sequence_output, pooled_output, num_img_feats=None, sg_rel_idx_pairs = None):
+            # self.obj_feat_relation = nn.Linear(2*config.hidden_size, obj_relation_vocab_size)
+            # self.obj_tag_relation = nn.Linear(2*config.hidden_size, obj_relation_vocab_size)
+            # self.obj_tag_feat_relation = nn.Linear(2*config.hidden_size, obj_relation_vocab_size)
+            # self.obj_feat_tag_relation = nn.Linear(2*config.hidden_size, obj_relation_vocab_size)
+
+    def forward(self, sequence_output, pooled_output, num_img_feats=None, sg_rel_idx_pairs = None, 
+                obj_tags_feats=None, obj_tag_sg_rel_idx_pairs = None):
         prediction_scores = self.predictions(sequence_output)
         seq_relationship_score = self.seq_relationship(pooled_output)
 
         if self.use_sg:
-            img_feats = sequence_output[:,-1*num_img_feats:]
-            batch_idx = torch.arange(img_feats.shape[0]).unsqueeze(-1)
-            sg_rel_idx_pairs = sg_rel_idx_pairs.long()
-            img_feats_grid = torch.cat((img_feats[batch_idx, sg_rel_idx_pairs[:, :, 0]], img_feats[batch_idx, sg_rel_idx_pairs[:, :, 1]]), dim=2) # (B, max_relations, 768*2) # max relations because we have padded the sg_rel_idx_pairs
-            obj_relation_score = self.obj_relation(img_feats_grid) # (B, max_relations, obj_relation_vocab_size)
-            return prediction_scores, seq_relationship_score, obj_relation_score
+            obj_feat_rel_score = self.get_obj_feat_rel_score(sequence_output, num_img_feats, sg_rel_idx_pairs)
+            obj_tag_rel_score = self.get_obj_tag_rel_score(obj_tags_feats, obj_tag_sg_rel_idx_pairs)
+            obj_tag_feat_rel_score = self.get_obj_tag_feat_rel_score(sequence_output, obj_tags_feats, num_img_feats, obj_tag_sg_rel_idx_pairs)
+            obj_feat_tag_rel_score = self.get_obj_feat_tag_rel_score(sequence_output, obj_tags_feats, num_img_feats, obj_tag_sg_rel_idx_pairs)
         else:
-            return prediction_scores, seq_relationship_score
+            obj_feat_rel_score = torch.tensor(0.).cuda()
+            obj_tag_rel_score = torch.tensor(0.).cuda()
+            obj_tag_feat_rel_score = torch.tensor(0.).cuda()
+            obj_feat_tag_rel_score = torch.tensor(0.).cuda()
+        
+        return prediction_scores, seq_relationship_score, obj_feat_rel_score, obj_tag_rel_score, obj_tag_feat_rel_score, obj_feat_tag_rel_score
+        #     img_feats = sequence_output[:,-1*num_img_feats:]
+        #     batch_idx = torch.arange(img_feats.shape[0]).unsqueeze(-1)
+        #     sg_rel_idx_pairs = sg_rel_idx_pairs.long()
+        #     img_feats_grid = torch.cat((img_feats[batch_idx, sg_rel_idx_pairs[:, :, 0]], img_feats[batch_idx, sg_rel_idx_pairs[:, :, 1]]), dim=2) # (B, max_relations, 768*2) # max relations because we have padded the sg_rel_idx_pairs
+        #     obj_feat_relation_score = self.obj_feat_relation(img_feats_grid) # (B, max_relations, obj_relation_vocab_size)
+        #     return prediction_scores, seq_relationship_score, obj_relation_score
+
+    def get_obj_feat_rel_score(self, sequence_output, num_img_feats, sg_rel_idx_pairs):
+        img_feats = sequence_output[:,-1*num_img_feats:]
+        batch_idx = torch.arange(img_feats.shape[0]).unsqueeze(-1)
+        sg_rel_idx_pairs = sg_rel_idx_pairs.long()
+        img_feats_grid = torch.cat((img_feats[batch_idx, sg_rel_idx_pairs[:, :, 0]], img_feats[batch_idx, sg_rel_idx_pairs[:, :, 1]]), dim=2) # (B, max_relations, 768*2) # max relations because we have padded the sg_rel_idx_pairs
+        obj_feat_rel_score = self.obj_relation(img_feats_grid) # (B, max_relations, obj_relation_vocab_size)
+        return obj_feat_rel_score
+
+
+    def get_obj_tag_rel_score(self, obj_tags, obj_tag_sg_rel_idx_pairs):
+        batch_idx = torch.arange(obj_tags.shape[0]).unsqueeze(-1)
+        obj_tag_sg_rel_idx_pairs = obj_tag_sg_rel_idx_pairs.long()
+        obj_tags_grid = torch.cat((obj_tags[batch_idx, obj_tag_sg_rel_idx_pairs[:, :, 0]], obj_tags[batch_idx, obj_tag_sg_rel_idx_pairs[:, :, 1]]), dim=2) # (B, max_relations, 768*2) # max relations because we have padded the obj_tag_sg_rel_idx_pairs
+        obj_tags_score = self.obj_relation(obj_tags_grid) # (B, max_relations, obj_relation_vocab_size)
+        return obj_tags_score
+
+    def get_obj_tag_feat_rel_score(self, sequence_output, obj_tags, num_img_feats, obj_tag_sg_rel_idx_pairs):
+        # first get all the image features in the input sentence
+        
+        # batch_idx = torch.arange(obj_tags.shape[0]).unsqueeze(-1)
+        # if batch_idx.shape[0] == 16:
+        #     import pdb; pdb.set_trace()
+
+        img_feats = sequence_output[:,-1*num_img_feats:]
+        # now get the first k image features corresponding to the k object tags input
+        # img_feats = img_feats[:, :obj_tags.shape[1]] ## not needed as of now, since we have kept max obj_tags for a datapoint = obj_tags.shape[1] = max_image_features = 50
+
+        ##TODO put assert that number of object tags is <= number of obj features --> always true since the object tags correspond to an object feature
+        batch_idx = torch.arange(obj_tags.shape[0]).unsqueeze(-1)
+
+        obj_tag_sg_rel_idx_pairs = obj_tag_sg_rel_idx_pairs.long()
+        obj_tags_feats_grid = torch.cat((obj_tags[batch_idx, obj_tag_sg_rel_idx_pairs[:, :, 0]], img_feats[batch_idx, obj_tag_sg_rel_idx_pairs[:, :, 1]]), dim=2) # (B, max_relations, 768*2) # max relations because we have padded the obj_tag_sg_rel_idx_pairs
+        obj_tags_feats_score = self.obj_relation(obj_tags_feats_grid) # (B, max_relations, obj_relation_vocab_size)
+        
+        return obj_tags_feats_score
+
+    def get_obj_feat_tag_rel_score(self, sequence_output, obj_tags, num_img_feats, obj_tag_sg_rel_idx_pairs):
+        # first get all the image features in the input sentence
+        img_feats = sequence_output[:,-1*num_img_feats:]
+        # now get the first k image features corresponding to the k object tags input
+        # img_feats = img_feats[:, :len(obj_tags)] # not needed for the same reason as the function above
+        ##TODO put assert that number of object tags is <= number of obj features --> always true since the object tags correspond to an object feature
+        
+        batch_idx = torch.arange(obj_tags.shape[0]).unsqueeze(-1)
+        obj_tag_sg_rel_idx_pairs = obj_tag_sg_rel_idx_pairs.long()
+        obj_feats_tags_grid = torch.cat((img_feats[batch_idx, obj_tag_sg_rel_idx_pairs[:, :, 1]], obj_tags[batch_idx, obj_tag_sg_rel_idx_pairs[:, :, 0]]), dim=2) # (B, max_relations, 768*2) # max relations because we have padded the obj_tag_sg_rel_idx_pairs
+        obj_feats_tags_score = self.obj_relation(obj_feats_tags_grid) # (B, max_relations, obj_relation_vocab_size)
+        
+        return obj_feats_tags_score
 
 
 class BertImgForPreTraining(ImgPreTrainedModel):
@@ -1047,22 +1112,34 @@ class BertImgForPreTraining(ImgPreTrainedModel):
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, masked_lm_labels=None,
             next_sentence_label=None, position_ids=None, head_mask=None, img_feats=None, 
-            sg_rel_idx_pairs = None, sg_rel_labels = None):
+            sg_rel_idx_pairs = None, sg_rel_labels = None, 
+            tokens_b_start_pos = None, tokens_b_spans = None, tokens_b_firsttokens = None, tokens_b_lasttokens = None,
+            obj_tag_sg_rel_idx_pairs = None, obj_tags_sg_rel_labels = None, is_qa=False):
 
         outputs = self.bert(input_ids, position_ids=position_ids, token_type_ids=token_type_ids,
                             attention_mask=attention_mask, head_mask=head_mask, img_feats=img_feats)
         num_img_feats = img_feats.shape[1]
 
         sequence_output, pooled_output = outputs[:2]
+        # import pdb; pdb.set_trace()
+        # tokens_b_firsttokens = torch.tensor([tokens_b_start_pos + span[0] for span in tokens_b_spans])
+        assert tokens_b_firsttokens.shape[0] == sequence_output.shape[0] and tokens_b_firsttokens.shape[1] <= sequence_output.shape[1]
+        obj_tags_feats = sequence_output[torch.arange(sequence_output.shape[0]).unsqueeze(-1), tokens_b_firsttokens] # taking the fieature of the first token of the tag
+
         bert_head_scores = self.cls(sequence_output, pooled_output, num_img_feats = num_img_feats, 
-                                                            sg_rel_idx_pairs = sg_rel_idx_pairs)
+                                    sg_rel_idx_pairs = sg_rel_idx_pairs, obj_tags_feats = obj_tags_feats,
+                                    obj_tag_sg_rel_idx_pairs = obj_tag_sg_rel_idx_pairs)
 
-        prediction_scores, seq_relationship_score = bert_head_scores[0], bert_head_scores[1]        
-        outputs = (prediction_scores, seq_relationship_score,) + outputs[2:]  # add hidden states and attention if they are here
-        
+        prediction_scores, seq_relationship_score = bert_head_scores[0], bert_head_scores[1]   
+        # import pdb; pdb.set_trace()     
+        try:
+            outputs = (prediction_scores, seq_relationship_score,) + outputs[2:]  # add hidden states and attention if they are here
+        except:
+            import pdb; pdb.set_trace()    
         if self.config.use_sg:
-            relation_scores = bert_head_scores[2]
+            obj_feat_relation_score, obj_tag_rel_score, obj_tag_feat_rel_score, obj_feat_tag_rel_score = bert_head_scores[2], bert_head_scores[3], bert_head_scores[4], bert_head_scores[5]
 
+        # import pdb; pdb.set_trace()
         if masked_lm_labels is not None and next_sentence_label is not None:
             loss_fct = CrossEntropyLoss(ignore_index=-1) # reduction = mean by default, in the main code, we also devide by grad acc steps, because loss should be ultimately divided by batch size = mean/grad_acc_steps
             masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), masked_lm_labels.view(-1))
@@ -1071,16 +1148,44 @@ class BertImgForPreTraining(ImgPreTrainedModel):
             outputs = (total_loss,) + outputs + (masked_lm_loss,)
 
             if self.config.use_sg:
-                lossrel_predict_fct = CrossEntropyLoss(ignore_index=-1) # ignore_index = -1, because if number of relations are less than the max number of relations, we pad the relation labels with -1 and this has to be ignored while calculating the loss
-
+                lossrel_predict_fct = CrossEntropyLoss(ignore_index=-1, reduction='none') # ignore_index = -1, because if number of relations are less than the max number of relations, we pad the relation labels with -1 and this has to be ignored while calculating the loss
+                is_not_qa_int = (~is_qa).int()
+                total_non_qa = is_not_qa_int.sum()
                 # import pdb; pdb.set_trace()
-                # loss_rel_predict = lossrel_predict_fct(relation_scores[:, :sg_num_rels].view(-1, self.config.obj_relation_vocab_size), sg_rel_labels[:, :sg_num_rels].view(-1).long())
-                loss_rel_predict = lossrel_predict_fct(relation_scores.view(-1, self.config.obj_relation_vocab_size), sg_rel_labels.view(-1).long())
-                outputs = outputs + (loss_rel_predict,)
+                try:
+                    assert torch.all(is_qa == torch.all(obj_tags_sg_rel_labels==-1, dim=1)) #all labels should be -1 if the inout is a q-a pair and not a object tag, caption pair
+                except:
+                    import pdb; pdb.set_trace()
 
+                # loss_rel_predict = lossrel_predict_fct(relation_scores[:, :sg_num_rels].view(-1, self.config.obj_relation_vocab_size), sg_rel_labels[:, :sg_num_rels].view(-1).long())
+                # import pdb; pdb.set_trace()
+                loss_feat_rel_predict = lossrel_predict_fct(obj_feat_relation_score.view(-1, self.config.obj_relation_vocab_size), sg_rel_labels.view(-1).long()).mean()
+                if total_non_qa!=0:
+                    loss_tag_rel_predict = (lossrel_predict_fct(obj_tag_rel_score.view(-1, self.config.obj_relation_vocab_size), obj_tags_sg_rel_labels.view(-1).long())).sum()/total_non_qa
+                    loss_tag_feat_rel_predict = (lossrel_predict_fct(obj_tag_feat_rel_score.view(-1, self.config.obj_relation_vocab_size), obj_tags_sg_rel_labels.view(-1).long())).sum()/total_non_qa
+                    loss_feat_tag_rel_predict = (lossrel_predict_fct(obj_feat_tag_rel_score.view(-1, self.config.obj_relation_vocab_size), obj_tags_sg_rel_labels.view(-1).long())).sum()/total_non_qa
+                    outputs = outputs + (loss_feat_rel_predict, loss_tag_rel_predict, loss_tag_feat_rel_predict, loss_feat_tag_rel_predict)
+
+                    if torch.isnan(loss_tag_rel_predict) or torch.isnan(loss_tag_feat_rel_predict) or torch.isnan(loss_feat_tag_rel_predict):
+                        logger.warning(f'total_non_qa = {total_non_qa}, loss_tag_rel_predict={loss_tag_rel_predict}, loss_tag_feat_rel_predic={loss_tag_feat_rel_predict}, loss_feat_tag_rel_predict = {loss_feat_tag_rel_predict}')
+                        assert total_non_qa==0
+                else:
+                    # loss_tag_rel_predict = (lossrel_predict_fct(obj_tag_rel_score.view(-1, self.config.obj_relation_vocab_size), obj_tags_sg_rel_labels.view(-1).long())).sum()/total_non_qa
+                    # loss_tag_feat_rel_predict = (lossrel_predict_fct(obj_tag_feat_rel_score.view(-1, self.config.obj_relation_vocab_size), obj_tags_sg_rel_labels.view(-1).long())).sum()/total_non_qa
+                    # loss_feat_tag_rel_predict = (lossrel_predict_fct(obj_feat_tag_rel_score.view(-1, self.config.obj_relation_vocab_size), obj_tags_sg_rel_labels.view(-1).long())).sum()/total_non_qa
+                    outputs = outputs + (loss_feat_rel_predict, torch.zeros_like(loss_feat_rel_predict), torch.zeros_like(loss_feat_rel_predict), torch.zeros_like(loss_feat_rel_predict))
+
+                # if torch.isnan(loss_tag_rel_predict) or torch.isnan(loss_tag_feat_rel_predict) or torch.isnan(loss_feat_tag_rel_predict):
+                #     print(total_non_qa)
+                #     assert total_non_qa==0
+                    # import pdb; pdb.set_trace()
+                
+                # import pdb; pdb.set_trace()
         
         if len(outputs)>3:
             if torch.all(sequence_output != outputs[3][-1]):
                 logger.warning('sequence_output != outputs[3][-1]')
 
-        return outputs  # (loss), prediction_scores, seq_relationship_score, (hidden_states), (attentions), (loss_rel_predict)
+        return outputs  # (loss), prediction_scores, seq_relationship_score, masked_lm_loss, (hidden_states), (attentions), 
+                        #(loss_rel_predict_objfeats), (loss_rel_predict_objtags), 
+                        # (loss_rel_predict_objtagTOobjfeat), (loss_rel_predict_objfeat||objtag)  

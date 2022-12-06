@@ -124,8 +124,7 @@ class OscarTSVDataset(Dataset):
                     label_info = row[1].split('_')
                 except:
                     import pdb; pdb.set_trace()
-                assert img_info[0] == label_info[
-                    0], "Dataset names for image and label do not match!" # assert triggers if img_info[0] != label_info[0]
+                assert img_info[0] == label_info[0], "Dataset names for image and label do not match!" # assert triggers if img_info[0] != label_info[0]
                 dataset_name = label_info[0]
                 if dataset_name == 'cc':
                     dataset_name = 'googlecc'
@@ -149,20 +148,17 @@ class OscarTSVDataset(Dataset):
                 self.corpus_lines = self.corpus_lines + 1
                 sample = {"doc_id": len(self.all_docs), "line": len(doc)}
                 self.sample_to_doc.append(sample)
-                assert len(row[2]) != 0, "Text_a is empty in {} : {}"\
-                    .format(dataset_name, row[0])
+                assert len(row[2]) != 0, "Text_a is empty in {} : {}".format(dataset_name, row[0])
                 doc.append(row[2])
                 # append text_b info
                 self.corpus_lines = self.corpus_lines + 1
                 label_id = label_info[-1]
                 if 'qa' in label_info:
-                    assert img_info[-1] == label_info[
-                        -2], "Image ids for image and qa do not match!"
+                    assert img_info[-1] == label_info[-2], "Image ids for image and qa do not match!"
                     label_line_no = self.img_qa_offset_map[dataset_name][label_id]
                     rowb = self.img_qa_file[dataset_name].seek(label_line_no)
                 else:
-                    assert img_info[-1] == label_info[
-                        -1], "Image ids for image and label do not match!"
+                    assert img_info[-1] == label_info[-1], "Image ids for image and label do not match!"
                     label_line_no = self.img_label_offset_map[dataset_name][label_id]
                     rowb = self.img_label_file[dataset_name].seek(label_line_no)
                 assert label_id == rowb[0]
@@ -175,15 +171,13 @@ class OscarTSVDataset(Dataset):
                             "boxes": None
                         }
                     else:
-                        assert results["image_h"] == self.imgid2labels[row[0]][
-                            "image_h"], "Image_h does not match in image {}!".format(row[0])
-                        assert results["image_w"] == self.imgid2labels[row[0]][
-                            "image_w"], "Image_w does not match in image {}!".format(row[0])
+                        assert results["image_h"] == self.imgid2labels[row[0]]["image_h"], "Image_h does not match in image {}!".format(row[0])
+                        assert results["image_w"] == self.imgid2labels[row[0]]["image_w"], "Image_w does not match in image {}!".format(row[0])
                     if args.use_gtlabels and 'gt_objects' in results:
                         # use ground-truth tags for text_b
-                        textb = ' '.join([cur_d['class'] for cur_d in results["gt_objects"]])
+                        textb = '[TAGSEP]'.join([cur_d['class'] for cur_d in results["gt_objects"]])
                     else:
-                        textb = ' '.join([cur_d['class'] for cur_d in objects])
+                        textb = '[TAGSEP]'.join([cur_d['class'] for cur_d in objects])
                 else:
                     tag_label_line_no = self.img_label_offset_map[dataset_name][img_info[-1]]
                     tag_rowb = self.img_label_file[dataset_name].seek(tag_label_line_no)
@@ -246,8 +240,27 @@ class OscarTSVDataset(Dataset):
 
         # tokenize
         tokens_a = self.tokenizer.tokenize(t1)
+        tokens_b = []
+        tokens_b_spans = []
         if self.args.use_b:
-            tokens_b = self.tokenizer.tokenize(t2)
+            span_start = 0
+            # import pdb; pdb.set_trace()
+            if "[TAGSEP]" not in t2:
+                tokens_b_spans = [] # no spans if there are no tokens in t2 (if there are tokens then there should have been a [TAGSEP])
+                tokens_b = self.tokenizer.tokenize(t2)
+                is_qa = True
+            else:
+                is_qa = False
+                t2 = t2.split('[TAGSEP]')
+                t2_space_sep  = ' '.join(t2)# same as original t2, without the [TAGSEP] tokens
+                for tag in t2:
+                    tag_tokenized = self.tokenizer.tokenize(tag)
+                    tokens_b.extend(tag_tokenized)
+                    tokens_b_spans.append([span_start, span_start+len(tag_tokenized)])
+                    span_start = span_start+len(tag_tokenized)
+                tokens_t2_space_sep = self.tokenizer.tokenize(t2_space_sep)
+                assert tokens_t2_space_sep == tokens_b # just a check that with and without the [TAGSEP], the tokenized versions are the same
+                
             if self.args.debug:
                 import pdb; pdb.set_trace()
         else:
@@ -255,8 +268,8 @@ class OscarTSVDataset(Dataset):
 
         # combine to one sample
         cur_example = InputExample(guid=cur_id, tokens_a=tokens_a,
-                                   tokens_b=tokens_b, is_next=is_next_label,
-                                   img_id=img_id, is_img_match=is_img_match)
+                                   tokens_b=tokens_b, tokens_b_spans=tokens_b_spans, is_next=is_next_label,
+                                   img_id=img_id, is_img_match=is_img_match, is_qa=is_qa)
 
         # get image feature
         img_feat = self.get_img_feature(img_id)
@@ -268,16 +281,23 @@ class OscarTSVDataset(Dataset):
             padding_matrix = torch.zeros((self.args.max_img_seq_length - img_feat.shape[0], img_feat.shape[1]))
             img_feat = torch.cat((img_feat, padding_matrix), 0)
 
+        # transform sample to features
+        cur_features = convert_example_to_features(self.args, cur_example,
+                                                   self.seq_len, self.tokenizer,
+                                                   img_feat_len)
+        num_obj_tags = len(cur_features.tokens_b_spans) # should turn out to be 0 if the document is a QA document    
+
         ##############SG################
         if self.use_sg:
             # import pdb; pdb.set_trace()
             img_sg = self.get_img_sg(img_id, img_feat.device)
-            rel_idx_pairs, rel_labels = img_sg['rel_idx_pairs'], img_sg['rel_labels']
+            rel_idx_pairs_all, rel_labels_all = img_sg['rel_idx_pairs'], img_sg['rel_labels']
 
+            ### for relation prediction b/w object features
             # remove the relations we cant deal with (since we have removed some object, because we need to maintain max_img_seq_length)
-            keep_rel_labels = ~(torch.ge(rel_idx_pairs[:, 0],self.args.max_img_seq_length) + torch.ge(rel_idx_pairs[:, 1],self.args.max_img_seq_length))# [true, trues, false, ....] places of false means the rel_idx_pairs has value > max_img_seq_length
-            rel_labels = rel_labels[keep_rel_labels==True]
-            rel_idx_pairs = rel_idx_pairs[keep_rel_labels==True]
+            keep_rel_labels = ~(torch.ge(rel_idx_pairs_all[:, 0],self.args.max_img_seq_length) + torch.ge(rel_idx_pairs_all[:, 1],self.args.max_img_seq_length))# [true, trues, false, ....] places of false means the rel_idx_pairs_all has value > max_img_seq_length
+            rel_labels = rel_labels_all[keep_rel_labels==True]
+            rel_idx_pairs = rel_idx_pairs_all[keep_rel_labels==True]
 
             rel_len = rel_idx_pairs.shape[0]
             assert rel_len == rel_labels.shape[0]
@@ -290,30 +310,51 @@ class OscarTSVDataset(Dataset):
                 rel_labels = torch.cat((rel_labels, padding_rel_labels), 0)
 
                 mask_rel_idx_pairs = torch.cat((torch.ones((rel_len, rel_idx_pairs.shape[1])), torch.zeros((self.args.max_rel_length - rel_len, rel_idx_pairs.shape[1]))), 0)
-                mask_rel_labels = torch.cat((torch.ones((rel_len)), torch.zeros((self.args.max_rel_length - rel_len))), 0)
-                
+                mask_rel_labels = torch.cat((torch.ones((rel_len)), torch.zeros((self.args.max_rel_length - rel_len))), 0)   
+            else:
+                raise NotImplementedError()
+
+
+            ### for relation prediction b/w object tags and object tags * object features
+            max_num_objs = min(num_obj_tags, self.args.max_img_seq_length)
+            keep_obj_tags_rel_labels = ~(torch.ge(rel_idx_pairs_all[:, 0],max_num_objs) + torch.ge(rel_idx_pairs_all[:, 1],max_num_objs))# [true, trues, false, ....] places of false means the rel_idx_pairs_all has value > max_img_seq_length
+            obj_tags_rel_labels = rel_labels_all[keep_obj_tags_rel_labels==True]
+            obj_tags_rel_idx_pairs = rel_idx_pairs_all[keep_obj_tags_rel_labels==True]
+
+            # note: if all keep_obj_tags_rel_labels = False, as will be the case when we would have a q-a input, the cross entropy loss later would for label classification 
+            # would come out to be nan, since all labels will be == ignore_index = -1, hence we should keep track of this case and multpy the final cross entropy loss with 0 wherever it is nan
+
+            obj_tags_rel_len = obj_tags_rel_idx_pairs.shape[0]
+            assert obj_tags_rel_len == obj_tags_rel_labels.shape[0]
+
+            if obj_tags_rel_len==0:
+                cur_features.is_qa = True
+                # obj_tags_rel_len can be 0 in 2 cases 
+                # 1] the datapoint is a q-a datapoint so there are no object tags as input hence no relations
+                # 2] object tags are as input but there are no relations between the first k object tags
+                # is_qa hence becomes a tag for telling the model when to use the loss and when to not, and no longer signifies the data beign qa or not
+
+            if obj_tags_rel_len <= self.args.max_rel_length:
+                padding_rel_idx = torch.zeros((self.args.max_rel_length - obj_tags_rel_len, obj_tags_rel_idx_pairs.shape[1]))
+                padding_rel_labels = -1*torch.ones((self.args.max_rel_length - obj_tags_rel_len)) # making tensors having -1's, so that we can do ignore_index=-1, while calculating the loss
+
+                obj_tags_rel_idx_pairs = torch.cat((obj_tags_rel_idx_pairs, padding_rel_idx), 0)
+                obj_tags_rel_labels = torch.cat((obj_tags_rel_labels, padding_rel_labels), 0)
+ 
             else:
                 raise NotImplementedError()
             # import pdb; pdb.set_trace()
 
         else:
-            rel_idx_pairs, mask_rel_idx_pairs, rel_labels, mask_rel_labels, rel_len = None, None, None, None, None
+            rel_idx_pairs, mask_rel_idx_pairs, rel_labels, mask_rel_labels, rel_len, obj_tags_rel_idx_pairs, obj_tags_rel_labels = None, None, None, None, None, None, None
         ################################
-        
-        # transform sample to features
-        cur_features = convert_example_to_features(self.args, cur_example,
-                                                   self.seq_len, self.tokenizer,
-                                                   img_feat_len)
 
-        
-
+    
 
         # number of image features should be the same as the number of object labels
         if self.use_sg:
-            try:
-                assert img_feat_len == img_sg['obj_labels'].shape[0] or (img_sg['obj_labels'].shape[0]>self.args.max_img_seq_length and img_feat_len==self.args.max_img_seq_length)
-            except:
-                import pdb; pdb.set_trace()
+            assert img_feat_len == img_sg['obj_labels'].shape[0] or (img_sg['obj_labels'].shape[0]>self.args.max_img_seq_length and img_feat_len==self.args.max_img_seq_length)
+
 
 
         return (img_feat, img_feat_len), (
@@ -323,7 +364,12 @@ class OscarTSVDataset(Dataset):
             torch.tensor(cur_features.lm_label_ids, dtype=torch.long),
             torch.tensor(cur_features.is_next),
             torch.tensor(cur_features.is_img_match),
-        ), (rel_idx_pairs, mask_rel_idx_pairs, rel_labels, mask_rel_labels, rel_len), item
+            cur_features.tokens_b_start_pos,
+            cur_features.tokens_b_spans,
+            torch.tensor(cur_features.tokens_b_firsttokens),
+            torch.tensor(cur_features.tokens_b_lasttokens),
+            torch.tensor(cur_features.is_qa)
+        ), (rel_idx_pairs, mask_rel_idx_pairs, rel_labels, mask_rel_labels, rel_len, obj_tags_rel_idx_pairs, obj_tags_rel_labels), item
 
 
     def random_sent(self, index):
@@ -667,9 +713,9 @@ class OscarTSVDataset(Dataset):
 class InputExample(object):
     """A single training/test example for the language model."""
 
-    def __init__(self, guid, tokens_a, tokens_b=None, is_next=None,
+    def __init__(self, guid, tokens_a, tokens_b=None, tokens_b_spans=None, is_next=None,
                  lm_labels=None, img_id=None, is_img_match=None,
-                 img_label=None):
+                 img_label=None, is_qa=None):
         """Constructs a InputExample.
 
         Args:
@@ -682,6 +728,9 @@ class InputExample(object):
         self.guid = guid
         self.tokens_a = tokens_a
         self.tokens_b = tokens_b
+
+        self.tokens_b_spans = tokens_b_spans
+
         self.is_next = is_next  # nextSentence
         self.lm_labels = lm_labels  # masked words for language model
 
@@ -689,12 +738,15 @@ class InputExample(object):
         self.is_img_match = is_img_match
         self.img_label = img_label
 
+        self.is_qa = is_qa
+
 
 class InputFeatures(object):
     """A single set of features of data."""
 
     def __init__(self, input_ids, input_mask, segment_ids, is_next,
-                 lm_label_ids, img_feat_len, is_img_match):
+                 lm_label_ids, img_feat_len, is_img_match, 
+                 tokens_b_start_pos, tokens_b_spans, tokens_b_firsttokens, tokens_b_lasttokens, is_qa):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
@@ -703,6 +755,12 @@ class InputFeatures(object):
 
         self.img_feat_len = img_feat_len
         self.is_img_match = is_img_match
+
+        self.tokens_b_start_pos = tokens_b_start_pos
+        self.tokens_b_spans = tokens_b_spans
+        self.tokens_b_firsttokens = tokens_b_firsttokens
+        self.tokens_b_lasttokens = tokens_b_lasttokens
+        self.is_qa = is_qa
 
 
 def random_word(tokens, tokenizer):
@@ -763,10 +821,12 @@ def convert_example_to_features(args, example, max_seq_length, tokenizer,
     tokens_b = None
     if example.tokens_b:
         tokens_b = example.tokens_b
+        tokens_b_spans = example.tokens_b_spans
         # Modifies `tokens_a` and `tokens_b` in place so that the total
         # length is less than the specified length.
         # Account for [CLS], [SEP], [SEP] with "- 3"
-        _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
+
+        _truncate_seq_pair(tokens_a, tokens_b, tokens_b_spans, max_seq_length - 3)
     else:
         if len(tokens_a) > max_seq_length - 2:
             tokens_a = tokens_a[:(max_seq_length - 2)]
@@ -818,6 +878,7 @@ def convert_example_to_features(args, example, max_seq_length, tokenizer,
     tokens.append("[SEP]")
     segment_ids.append(0)
 
+    tokens_b_start_pos = len(tokens)
     if tokens_b:
         assert len(tokens_b) > 0
         for token in tokens_b:
@@ -825,6 +886,18 @@ def convert_example_to_features(args, example, max_seq_length, tokenizer,
             segment_ids.append(1)
         tokens.append("[SEP]")
         segment_ids.append(1)
+
+    tokens_b_firsttokens = [tokens_b_start_pos + span[0] for span in tokens_b_spans]
+    tokens_b_lasttokens = [tokens_b_start_pos + span[1]-1 for span in tokens_b_spans] # -1 since a spans [6,8]'s last token is at 7
+    ## pad tokens_b_firsttokens and tokens_b_lasttokens with 0's
+
+    assert len(tokens_b_lasttokens) == len(tokens_b_firsttokens)
+    if len(tokens_b_firsttokens) < args.max_img_seq_length:
+        tokens_b_firsttokens = tokens_b_firsttokens + [0]*(args.max_img_seq_length-len(tokens_b_firsttokens))
+        tokens_b_lasttokens = tokens_b_lasttokens + [0]*(args.max_img_seq_length-len(tokens_b_lasttokens))
+    else:
+        tokens_b_firsttokens = tokens_b_firsttokens[:args.max_img_seq_length]
+        tokens_b_lasttokens = tokens_b_lasttokens[:args.max_img_seq_length]
 
     if args.debug:
         import pdb; pdb.set_trace()
@@ -865,6 +938,8 @@ def convert_example_to_features(args, example, max_seq_length, tokenizer,
         logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
         logging.info("LM label: %s " % lm_label_ids)
         logging.info("Is next sentence label: %s " % example.is_next)
+        logging.info("Is QA?: %s " % example.is_qa)
+        
 
     features = InputFeatures(input_ids=input_ids,
                              input_mask=input_mask,
@@ -872,11 +947,16 @@ def convert_example_to_features(args, example, max_seq_length, tokenizer,
                              lm_label_ids=lm_label_ids,
                              is_next=example.is_next,
                              img_feat_len=img_feat_len,
-                             is_img_match=example.is_img_match)
+                             is_img_match=example.is_img_match,
+                             tokens_b_start_pos=tokens_b_start_pos,
+                             tokens_b_spans=tokens_b_spans,
+                             tokens_b_firsttokens=tokens_b_firsttokens,
+                             tokens_b_lasttokens=tokens_b_lasttokens,
+                             is_qa=example.is_qa)
     return features
 
 
-def _truncate_seq_pair(tokens_a, tokens_b, max_length):
+def _truncate_seq_pair(tokens_a, tokens_b, tokens_b_spans, max_length):
     """Truncates a sequence pair in place to the maximum length."""
 
     # This is a simple heuristic which will always truncate the longer sequence
@@ -891,3 +971,6 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
             tokens_a.pop()
         else:
             tokens_b.pop()
+            tokens_b_spans[-1][-1]-=1
+            if tokens_b_spans[-1][0]==tokens_b_spans[-1][1]:
+                tokens_b_spans.pop()
