@@ -31,6 +31,7 @@ from ..utils.cbs import ConstrainedBeamSearch, select_best_beam_with_constraints
 logger = logging.getLogger(__name__)
 
 
+
 class CaptionBertSelfAttention(BertSelfAttention):
     """
     Modified from BertSelfAttention to add support for output_hidden_states.
@@ -1143,7 +1144,22 @@ class BertImgForPreTraining(ImgPreTrainedModel):
         if masked_lm_labels is not None and next_sentence_label is not None:
             loss_fct = CrossEntropyLoss(ignore_index=-1) # reduction = mean by default, in the main code, we also devide by grad acc steps, because loss should be ultimately divided by batch size = mean/grad_acc_steps
             masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), masked_lm_labels.view(-1))
+            # import pdb; pdb.set_trace()
             tag_contrastive_loss = loss_fct(seq_relationship_score.view(-1, self.num_seq_relations), next_sentence_label.view(-1)) # NOTE: next sentence here means the contrastive loss!!
+            
+            if torch.isnan(masked_lm_loss):
+                logger.info(f"masked_lm_loss  = {masked_lm_loss}, prediction_scores = {prediction_scores.view(-1, self.config.vocab_size)}, masked_lm_labels = {masked_lm_labels.view(-1)}")
+                print(f"masked_lm_loss  = {masked_lm_loss}, prediction_scores = {prediction_scores.view(-1, self.config.vocab_size)}, masked_lm_labels = {masked_lm_labels.view(-1)}")
+                with open('error.txt', 'a') as f:
+                    f.write(f"masked_lm_loss  = {masked_lm_loss}, prediction_scores = {prediction_scores.view(-1, self.config.vocab_size)}, masked_lm_labels = {masked_lm_labels.view(-1)}")
+                # import pdb; pdb.set_trace()
+                masked_lm_loss = torch.zeros_like(masked_lm_loss) # is loss is nan, make the loss 0.
+
+            if torch.isnan(tag_contrastive_loss):
+                logger.info(f"tag_contrastive_loss  = {tag_contrastive_loss}, seq_relationship_score = {seq_relationship_score.view(-1, self.num_seq_relations)}, next_sentence_label = {next_sentence_label.view(-1)}")
+                print(f"tag_contrastive_loss  = {tag_contrastive_loss}, seq_relationship_score = {seq_relationship_score.view(-1, self.num_seq_relations)}, next_sentence_label = {next_sentence_label.view(-1)}")
+                import pdb; pdb.set_trace()
+
             total_loss = masked_lm_loss + tag_contrastive_loss
             outputs = (total_loss,) + outputs + (masked_lm_loss,)
 
@@ -1167,8 +1183,9 @@ class BertImgForPreTraining(ImgPreTrainedModel):
                     outputs = outputs + (loss_feat_rel_predict, loss_tag_rel_predict, loss_tag_feat_rel_predict, loss_feat_tag_rel_predict)
 
                     if torch.isnan(loss_tag_rel_predict) or torch.isnan(loss_tag_feat_rel_predict) or torch.isnan(loss_feat_tag_rel_predict):
-                        logger.warning(f'total_non_qa = {total_non_qa}, loss_tag_rel_predict={loss_tag_rel_predict}, loss_tag_feat_rel_predic={loss_tag_feat_rel_predict}, loss_feat_tag_rel_predict = {loss_feat_tag_rel_predict}')
-                        assert total_non_qa==0
+                        # logger.warning(f'total_non_qa = {total_non_qa}, loss_tag_rel_predict={loss_tag_rel_predict}, loss_tag_feat_rel_predic={loss_tag_feat_rel_predict}, loss_feat_tag_rel_predict = {loss_feat_tag_rel_predict}')
+                        # assert total_non_qa==0
+                        import pdb; pdb.set_trace()
                 else:
                     # loss_tag_rel_predict = (lossrel_predict_fct(obj_tag_rel_score.view(-1, self.config.obj_relation_vocab_size), obj_tags_sg_rel_labels.view(-1).long())).sum()/total_non_qa
                     # loss_tag_feat_rel_predict = (lossrel_predict_fct(obj_tag_feat_rel_score.view(-1, self.config.obj_relation_vocab_size), obj_tags_sg_rel_labels.view(-1).long())).sum()/total_non_qa
@@ -1178,10 +1195,10 @@ class BertImgForPreTraining(ImgPreTrainedModel):
                 # if torch.isnan(loss_tag_rel_predict) or torch.isnan(loss_tag_feat_rel_predict) or torch.isnan(loss_feat_tag_rel_predict):
                 #     print(total_non_qa)
                 #     assert total_non_qa==0
-                    # import pdb; pdb.set_trace()
-                
-                # import pdb; pdb.set_trace()
-        
+                #     import pdb; pdb.set_trace()
+            # if torch.isnan(outputs[0]):
+            #     import pdb; pdb.set_trace()
+                        
         if len(outputs)>3:
             if torch.all(sequence_output != outputs[3][-1]):
                 logger.warning('sequence_output != outputs[3][-1]')

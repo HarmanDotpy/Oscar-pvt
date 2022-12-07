@@ -661,10 +661,13 @@ def main():
                 import pdb; pdb.set_trace()
             params_to_log = {'params': {'bert_lr': optimizer.param_groups[0]["lr"]}}
 
+            # for k in metrics_to_log['batch_metrics']:
+            #     if math.isnan(metrics_to_log['batch_metrics'][k]):
+            #         import pdb; pdb.set_trace()
+
             if args.local_rank == 0:  # only on main process
                 wandb.log(metrics_to_log)
                 wandb.log(params_to_log)
-
             meters.update_metrics(metrics_to_log)
             meters.update_params(params_to_log)
 
@@ -695,7 +698,8 @@ def main():
                 logger.info(f'nb_tr_steps: {nb_tr_steps}')
             # reset metrics
             
-            loss_dict['tr_loss'] = 0
+            for k in loss_dict.keys():
+                loss_dict[k] = 0
             nb_tr_examples, nb_tr_steps = 0, 0
 
             if get_rank() == 0:

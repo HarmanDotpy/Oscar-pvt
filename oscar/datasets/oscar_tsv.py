@@ -929,6 +929,9 @@ def convert_example_to_features(args, example, max_seq_length, tokenizer,
 
     lm_label_ids = lm_label_ids + [-1] * args.max_img_seq_length
 
+    # if torch.all(torch.tensor(lm_label_ids)==-1):
+    #     import pdb; pdb.set_trace()
+
     if example.guid < 1:
         logging.info("*** Example ***")
         logging.info("guid: %s" % example.guid)
@@ -971,6 +974,7 @@ def _truncate_seq_pair(tokens_a, tokens_b, tokens_b_spans, max_length):
             tokens_a.pop()
         else:
             tokens_b.pop()
-            tokens_b_spans[-1][-1]-=1
-            if tokens_b_spans[-1][0]==tokens_b_spans[-1][1]:
-                tokens_b_spans.pop()
+            if len(tokens_b_spans)>0:
+                tokens_b_spans[-1][-1]-=1
+                if tokens_b_spans[-1][0]==tokens_b_spans[-1][1]:
+                    tokens_b_spans.pop()

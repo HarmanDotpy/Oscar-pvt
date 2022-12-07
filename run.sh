@@ -325,4 +325,34 @@ python -m torch.distributed.launch --nproc_per_node=1 oscar/run_oscarplus_pretra
     --use_sg --output_hidden_states --obj_relation_vocab_size 51 --max_datapoints 10000
 
 
+python -m torch.distributed.launch --nproc_per_node=1 oscar/run_oscarplus_pretrain.py \
+    --use_b 1 \
+    --max_grad_norm 10.0 --gradient_accumulation_steps 1 \
+    --use_img_layernorm 1 \
+    --output_dir /checkpoints/harman/oscar/ \
+    --bert_model bert --model_name_or_path bert-base-uncased \
+    --do_lower_case --learning_rate 5e-05 \
+    --warmup_steps 0 --do_train --max_seq_length 50 --on_memory \
+    --max_img_seq_length 50 --img_feature_dim 2054 \
+    --drop_out 0.1 --train_batch_size 32 \
+    --ckpt_period 10000 --max_iters 2000000 --log_period 100 \
+    --data_dir /fsx/harman/Oscar/yaml_files --dataset_file coco_sg.yaml \
+    --textb_sample_mode 1 --texta_false_prob 0.25 --num_workers 10 \
+    --use_sg --output_hidden_states --obj_relation_vocab_size 51 --max_datapoints 1000
 
+
+# debug all lm labels -1 error
+python -m torch.distributed.launch --nproc_per_node=1 oscar/run_oscarplus_pretrain.py \
+    --use_b 1 \
+    --max_grad_norm 10.0 --gradient_accumulation_steps 1 \
+    --use_img_layernorm 1 \
+    --output_dir /checkpoints/harman/oscar/ \
+    --bert_model bert --model_name_or_path bert-base-uncased \
+    --do_lower_case --learning_rate 5e-05 \
+    --warmup_steps 0 --do_train --max_seq_length 50 --on_memory \
+    --max_img_seq_length 50 --img_feature_dim 2054 \
+    --drop_out 0.1 --train_batch_size 32 \
+    --ckpt_period 10000 --max_iters 2000000 --log_period 100 \
+    --data_dir /fsx/harman/Oscar/yaml_files --dataset_file coco_sg.yaml \
+    --textb_sample_mode 1 --texta_false_prob 0.25 --num_workers 0 \
+    --output_hidden_states --obj_relation_vocab_size 51 --max_datapoints 1000
